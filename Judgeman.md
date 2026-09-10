@@ -204,3 +204,36 @@ No reescribir desde cero: revisar `apps/bustrax/` primero.
 3. Sincronizar **otras UDN** (hoy solo `set_tj2`).
 4. Score de Seguridad (otra API) pendiente.
 5. Rotar tokens (estuvieron en texto plano en el legacy local).
+
+---
+
+## 12. Seguridad / continuidad del token (2026-10)
+
+Contexto operativo:
+- **w2 = la plataforma web** de Bustrax para SETTEPI. Por un incidente de seguridad se
+  dieron de baja permisos de w2; el **login web de la cuenta LOGMIKE quedó bloqueado** y
+  sólo se restablecerán las cuentas MAE que Yasmín solicite. **No habrá cuenta nueva.**
+- El portal **NO usa la web**: usa la **API** (`api.bustrax.io`) con el token `bttkn` de
+  `LOGMIKE_TJ2`. Verificado en vivo (2026-10-09): `get_groups`, `get_trips_eta`, MAE
+  (`get_routes_full_with_stops_history`) y `rid=5` responden **200** → **no afectados**.
+
+Por qué seguimos dentro:
+- El permiso de **web** es distinto del **token de API**. `validToken()`
+  (`tracker/eta/updates/updates.php:1082`) valida sólo:
+  `token['user'] == user` y `strtotime(token['date']) > token_datetime` (usuario con `status=1`).
+  **No consulta permisos de w2.**
+- Los tokens **no expiran por tiempo**; viven hasta que se **regeneran** o se **desactiva**
+  el usuario. (Ojo: `validateToken()` con 60 s es OTRO flujo, no el de la API.)
+
+Riesgo:
+- Si **desactivan la cuenta** o **regeneran el token**, la API deja de responder y no habrá
+  reemplazo. Los datos ya sincronizados quedan en la BD; se rompería sólo la actualización.
+
+Mitigaciones (plan):
+1. **Blindar el histórico mientras el token vive**: backfill de años previos + **export/backup**
+   de la BD.
+2. **Robustez**: detectar auth fallida en `sync` (respuesta vacía/denegada) → `SyncLog` +
+   **banner** en el dashboard; comando `manage.py check_tokens` (pendiente).
+3. **Fuente alterna**: **Traffilog (GPS) es independiente** de Bustrax → el CR por GPS
+   seguiría funcionando; viajes/NS base sí dependen de Bustrax (plan B: aproximar desde GPS).
+4. **Nunca** subir tokens al repo (`.env` está ignorado; `.env.example` con placeholders).

@@ -34,7 +34,14 @@ python manage.py runserver
 python manage.py sync_semana 2026 6 --bunit set_tj2
 python manage.py backfill 2026 --desde 1 --hasta 36 --bunit set_tj2
 ```
-> En producción esto corre con Celery (`worker` + `beat`).
+> En producción esto corre con Celery: `worker` + `beat` (**diario 05:00**, America/Tijuana)
+> sincroniza la semana en curso. El contenedor `web` corre `migrate` al arrancar.
+
+## Refinamiento GPS (Calidad de Ruta)
+Para rutas donde el ETA sobrecuenta, se refina con GPS (criterio oficial Bustrax **200 m**):
+1. En el admin crea `Refinamiento GPS` (grupo + `ruta_seq`).
+2. Prueba: `python manage.py refinar_gps 2026 6 --grupo SCN-SCHNEIDER --ruta 142`
+3. `sync_semana` lo aplica automáticamente (14d y 7d) y marca el CR como `mixto`.
 
 ## Filtros del dashboard (admin)
 - Año (por defecto el actual).

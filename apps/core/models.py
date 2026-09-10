@@ -138,6 +138,33 @@ class GpsPunto(models.Model):
         unique_together = ("car", "dia_utc")
 
 
+class RefinamientoRuta(models.Model):
+    """Rutas que se refinan con GPS (detección real de parada).
+
+    Criterio por defecto: 200 m, como la plataforma Bustrax
+    (`tracker/eta/eta.php:780`, `$md = 200`).
+    """
+
+    grupo = models.ForeignKey(
+        GrupoCliente, on_delete=models.CASCADE, related_name="refinamientos"
+    )
+    ruta_seq = models.CharField(max_length=20)
+    activo = models.BooleanField(default=True)
+    tol_m = models.PositiveIntegerField(default=200, help_text="Tolerancia en metros (plataforma: 200).")
+    ventana_min = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Minutos alrededor de la parada. Vacío = todo el servicio."
+    )
+    notas = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        unique_together = ("grupo", "ruta_seq")
+        verbose_name = "Refinamiento GPS"
+        verbose_name_plural = "Refinamientos GPS"
+
+    def __str__(self):
+        return f"{self.grupo.group} · ruta {self.ruta_seq} ({self.tol_m} m)"
+
+
 class SyncLog(models.Model):
     ESTADOS = [("ok", "OK"), ("error", "Error"), ("parcial", "Parcial")]
 

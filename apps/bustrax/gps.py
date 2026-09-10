@@ -147,16 +147,18 @@ def _js(value):
     return value
 
 
-def services_from_trips(route, trips, year, week):
+def services_from_trips(route, trips, year, week, start=None, end=None):
     """Servicios reales (fecha, auto, horario) desde los viajes rid=5."""
     stops = _js(route.get("stops")) or []
     if not stops:
         return []
-    sunday = sunday_of_week(year, week)
-    if sunday is None:
-        return []
-    s_start = sunday.isoformat()
-    s_end = (sunday + timedelta(days=6)).isoformat()
+    if start is None or end is None:
+        sunday = sunday_of_week(year, week)
+        if sunday is None:
+            return []
+        start = sunday.isoformat()
+        end = (sunday + timedelta(days=6)).isoformat()
+    s_start, s_end = start, end
     stop_list = [
         {"index": i, "id": s.get("id"), "des": s.get("des"), "lat": s.get("lat"),
          "lng": s.get("lng"), "sched_min": None}
@@ -173,9 +175,17 @@ def services_from_trips(route, trips, year, week):
             continue
         tseq = str(trip.get("ID Ruta") or "").strip().lstrip("0")
         tdesc = str(trip.get("des") or "").strip()
-        match = (rdesc and tdesc and (rdesc.upper() == tdesc.upper()
-                 or rdesc.upper() in tdesc.upper() or tdesc.upper() in rdesc.upper())) \
-            or (seq and tseq == str(seq))
+        if tseq:
+            # Prioridad al número de ruta (ID Ruta) — exacto
+            match = bool(seq) and tseq == str(seq).lstrip("0")
+        else:
+            # Fallback por descripción sólo si no hay ID Ruta
+            match = bool(
+                rdesc and tdesc
+                and (rdesc.upper() == tdesc.upper()
+                     or rdesc.upper() in tdesc.upper()
+                     or tdesc.upper() in rdesc.upper())
+            )
         if not match:
             continue
         out.append({
@@ -242,3 +252,61 @@ def local_day_points(client, car, local_date, cache):
             if local.date().isoformat() == local_date:
                 out.append((local.hour * 60 + local.minute + local.second / 60.0, lat, lng))
     return out
+
+
+# --------------------------------------------------------------------- caché BD
+
+def _db_day_points(client, car, utc_day):
+    """Puntos crudos de (auto, día UTC), cacheados en la BD (GpsPunto)."""
+    from apps.core.models import GpsPunto
+
+    car = str(car)
+    obj = GpsPunto.objects.filter(car=car, dia_utc=utc_day).first()
+    if obj:
+        return obj.puntos or []
+    pts = client.day_points(car, utc_day) or []
+    GpsPunto.objects.update_or_create(car=car, dia_utc=utc_day, defaults={"puntos": pts})
+    return pts
+
+
+def local_day_points_db(client, car, local_date):
+    """Puntos de un día local usando la caché en BD."""
+    tz = ZoneInfo(settings.TRAFFILOG_TZ)
+    d = date.fromisoformat(local_date)
+    out = []
+    for utc_day in (d.isoformat(), (d + timedelta(days=1)).isoformat()):
+        for loc in _db_day_points(client, car, utc_day):
+            t = parse_loc_time(loc.get("time"))
+            if t is None:
+                continue
+            try:
+                lat = float(loc.get("latitude"))
+                lng = float(loc.get("longitude"))
+            except (TypeError, ValueError):
+                continue
+            local = t.replace(tzinfo=timezone.utc).astimezone(tz).replace(tzinfo=None)
+            if local.date().isoformat() == local_date:
+                out.append((local.hour * 60 + local.minute + local.second / 60.0, lat, lng))
+    return out
+
+
+def refinar_ruta(route, trips, year, week, tol_m=200, ventana_min=None,
+                 client=None, start=None, end=None):
+    """Calidad de ruta reconstruida por GPS (criterio plataforma: 200 m).
+
+    route: objeto MAE crudo (con stops).
+    trips: filas rid=5 de la semana (o rango).
+    Devuelve (calidad | None, n_servicios).
+    """
+    client = client or TraffilogClient()
+    client.login()
+    services = services_from_trips(route, trips, year, week, start=start, end=end)
+    if not services:
+        return None, 0
+    quality = route_quality_services(
+        services,
+        lambda car, d: local_day_points_db(client, car, d),
+        tol_m=tol_m,
+        window_min=ventana_min,
+    )
+    return quality, len(services)

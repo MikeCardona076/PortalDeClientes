@@ -112,9 +112,15 @@ Implementado en `apps/bustrax/weeks.py`: `start_sunday`, `semvia`, `sunday_of_we
 - **Dos ventanas** (`window_mode`): `14d` = `[domingo-7d, sábado]` (replica la ventana de 14 días
   de la plataforma, default) y `7d` = `[domingo, sábado]`.
 - Calibración conocida (SCHNEIDER S6 2026): CR 14d ≈ 97.14, 7d ≈ 97.17 vs histórico 97.44.
-- **Caveat**: hay rutas donde el ETA sobrecuenta (ej. seq 142 real 91 vs API ~99) porque la
-  plataforma exige que la unidad **realmente se detenga** (dwell/velocidad). Para eso está el
-  refinamiento GPS (`apps/bustrax/gps.py`), **aún no cableado** al sync.
+- **Caveat**: hay rutas donde el ETA sobrecuenta (ej. seq 142 real 91 vs API ~99). Para eso
+  existe el **refinamiento GPS** (`apps/bustrax/gps.py`), **cableado** en `sync_semana`:
+  - Se configura en el admin con `RefinamientoRuta` (grupo + `ruta_seq`).
+  - Criterio por defecto **200 m** (oficial de Bustrax: `tracker/eta/eta.php:780`, `$md = 200`,
+    `found = smin < md`), parametrizable por ruta.
+  - Calcula ambas ventanas (`14d` y `7d`) y guarda `CRRutaSemana.source="gps"`.
+  - `CRClienteSemana` se recalcula mezclando API+GPS (`source="mixto"`).
+  - Puntos GPS cacheados en BD (`GpsPunto`). Prueba: `manage.py refinar_gps 2026 6 --grupo SCN-SCHNEIDER --ruta 142`.
+  - Resultado observado 142: `7d=98.99`, `14d=85.35` (real 91) — Traffilog difiere del `his` interno de Bustrax.
 
 ### 5.2 Nivel de Servicio (NS) y Viajes — `apps/bustrax/ns.py`
 Fórmulas (validadas contra Excel del cliente):
@@ -155,7 +161,9 @@ Regla de **nombre base de cliente** (`cr.client_base`): `"SCN-SCHNEIDER"` → `"
   python manage.py backfill 2026 [--desde 1 --hasta 36] [--bunit set_tj2]
   python manage.py seed_bustrax --bunit set_tj2
   ```
-- En prod: tareas Celery (`apps/sync/tasks.py`) + beat para la semana en curso.
+- En prod: tareas Celery (`apps/sync/tasks.py`) + **beat diario 05:00** (America/Tijuana) con
+  `tarea_sync_semana_actual` (`CELERY_BEAT_SCHEDULE` en `config/settings.py`).
+- El `web` corre `migrate` al arrancar (`deploy/entrypoint.sh` + `ENTRYPOINT` en `Dockerfile`).
 - UDN por defecto si no hay ninguna en BD: `set_tj2`. (Actualmente **solo se sincroniza set_tj2**.)
 
 ---
@@ -190,9 +198,9 @@ No reescribir desde cero: revisar `apps/bustrax/` primero.
 
 ## 11. Pendientes / caveats
 
-1. **Cablear el refinamiento GPS** en el sync para rutas donde el ETA sobrecuenta (caso 142).
-2. Definir/anclar exactamente la **ventana 14d** para igualar el histórico de Bustrax (hoy `[domingo-7d, sábado]`).
-3. Asignar **scope** a usuarios-cliente en el admin.
-4. Sincronizar **otras UDN** (hoy solo `set_tj2`) y programar beat.
-5. Score de Seguridad (otra API) pendiente.
-6. Rotar tokens (estuvieron en texto plano en el legacy local).
+1. **Calibrar GPS por ruta**: el criterio es 200 m; en la 142 el `14d` da 85.35 vs 91 real
+   (Traffilog ≠ `his` interno de Bustrax). Ajustar `tol_m`/ventana por ruta si hace falta.
+2. Asignar **scope** a usuarios-cliente en el admin.
+3. Sincronizar **otras UDN** (hoy solo `set_tj2`).
+4. Score de Seguridad (otra API) pendiente.
+5. Rotar tokens (estuvieron en texto plano en el legacy local).

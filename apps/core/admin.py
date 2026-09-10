@@ -9,6 +9,7 @@ from .models import (
     GrupoCliente,
     MaeRuta,
     PerfilUsuario,
+    RefinamientoRuta,
     Semana,
     SyncLog,
     ViajeSemana,
@@ -80,3 +81,10 @@ class SyncLogAdmin(admin.ModelAdmin):
 @admin.register(GpsPunto)
 class GpsPuntoAdmin(admin.ModelAdmin):
     list_display = ("car", "dia_utc")
+
+
+@admin.register(RefinamientoRuta)
+class RefinamientoRutaAdmin(admin.ModelAdmin):
+    list_display = ("grupo", "ruta_seq", "activo", "tol_m", "ventana_min")
+    list_filter = ("activo", "grupo")
+    search_fields = ("ruta_seq", "grupo__group")

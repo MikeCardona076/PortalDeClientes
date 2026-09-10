@@ -18,5 +18,14 @@ def tarea_sync_semana(year, week, bunits=None):
 
 
 @shared_task
+def tarea_sync_semana_actual(bunits=None):
+    """Sincroniza la semana operativa en curso (para Celery beat)."""
+    from apps.bustrax.weeks import current_week
+
+    year, week = current_week()
+    return sync_semana(year, week, bunits=bunits)
+
+
+@shared_task
 def tarea_backfill(year, week_from=1, week_to=None):
     return backfill(year, week_from=week_from, week_to=week_to)

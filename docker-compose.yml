@@ -24,6 +24,8 @@ services:
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
       - db
       - redis
@@ -31,11 +33,15 @@ services:
   beat:
     build: .
     container_name: clientesd_beat
-    command: celery -A config beat -l info
+    command: celery -A config beat -l info --schedule=/app/beat/celerybeat-schedule
     env_file: .env
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    volumes:
+      - beatdata:/app/beat
     depends_on:
       - db
       - redis
@@ -57,3 +63,4 @@ services:
 volumes:
   pgdata:
   static:
+  beatdata:

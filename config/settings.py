@@ -167,3 +167,16 @@ if IS_PROD:
 # ------------------------------------------------------------------ Celery (prod)
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://redis:6379/0")
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://redis:6379/0")
+CELERY_TIMEZONE = TIME_ZONE
+
+try:  # celery no está instalado en dev
+    from celery.schedules import crontab
+
+    CELERY_BEAT_SCHEDULE = {
+        "sync-semana-actual": {
+            "task": "apps.sync.tasks.tarea_sync_semana_actual",
+            "schedule": crontab(hour=5, minute=0),  # diario 05:00 (America/Tijuana)
+        },
+    }
+except ImportError:
+    CELERY_BEAT_SCHEDULE = {}

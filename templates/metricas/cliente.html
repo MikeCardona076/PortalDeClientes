@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ cliente.nombre }} · S{{ week }} {{ year }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <a href="{% url 'metricas:index' %}?anio={{ year }}&window={{ window }}" class="btn btn-outline-secondary btn-sm">← Matriz {{ year }}</a>
+    <h4 class="m-0">Cliente: <span class="text-primary">{{ cliente.nombre }}</span></h4>
+    <span class="badge text-bg-light border">Semana {{ week }}, {{ year }}</span>
+    <span class="badge text-bg-light border">CR {{ window }}</span>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="card p-3 text-center">
+        <div class="kpi-label">Total Viajes</div>
+        <div class="kpi-value text-primary">{{ kpi_viajes|default_if_none:"—" }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="card p-3 text-center">
+        <div class="kpi-label">Nivel de Servicio</div>
+        <div class="kpi-value text-success">{% if kpi_ns is not None %}{{ kpi_ns }}%{% else %}—{% endif %}</div>
+        <div class="small text-muted">{% if kpi_entradas is not None %}entradas {{ kpi_entradas }} · retrasos {{ kpi_ret }}{% endif %}</div>
+    </div></div>
+    <div class="col-md-3"><div class="card p-3 text-center">
+        <div class="kpi-label">Calidad de Ruta</div>
+        <div class="kpi-value text-info">{% if cr_actual is not None %}{{ cr_actual }}%{% else %}—{% endif %}</div>
+        <div class="small text-muted">{{ detalle|length }} rutas</div>
+    </div></div>
+    <div class="col-md-3"><div class="card p-3 text-center">
+        <div class="kpi-label">Score Seguridad</div>
+        <div class="kpi-value text-warning">—</div>
+        <div class="small text-muted">próximamente</div>
+    </div></div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6"><div class="card p-3">
+        <h6 class="mb-2">Histórico de Viajes</h6><canvas id="chartViajes" height="120"></canvas>
+    </div></div>
+    <div class="col-md-6"><div class="card p-3">
+        <h6 class="mb-2">Nivel de Servicio en Llegada a Planta (%)</h6><canvas id="chartNS" height="120"></canvas>
+    </div></div>
+</div>
+
+<div class="row g-3">
+    <div class="col-md-4"><div class="card p-3 text-center">
+        <h6>Calidad de Ruta · {{ window }}</h6>
+        <div class="gauge-wrap"><canvas id="gauge" width="200" height="200"></canvas>
+            <div class="gauge-center"><div class="kpi-value text-info">{% if cr_actual is not None %}{{ cr_actual }}%{% else %}—{% endif %}</div></div>
+        </div>
+    </div></div>
+    <div class="col-md-8"><div class="card p-3">
+        <h6 class="mb-2">Detalle por ruta (IN/N)</h6>
+        <div class="scrollx" style="max-height:320px; overflow-y:auto;">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>Ruta</th><th>Descripción</th><th>Servicios</th><th>Calidad</th></tr></thead>
+            <tbody>
+            {% for d in detalle %}
+                <tr><td>{{ d.ruta_seq }}</td><td>{{ d.descripcion }}</td><td>{{ d.servicios }}</td>
+                    <td><span class="badge {% if d.calidad >= 97 %}text-bg-success{% elif d.calidad >= 80 %}text-bg-warning{% else %}text-bg-danger{% endif %}">{{ d.calidad }}%</span></td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="text-center text-muted">Sin datos. Corre la sincronización.</td></tr>
+            {% endfor %}
+        </tbody></table></div>
+    </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ serie|json_script:"serie-data" }}
+<script>
+const serie = JSON.parse(document.getElementById('serie-data').textContent);
+const labels = serie.map(s=>s.label);
+new Chart(document.getElementById('chartViajes'), {
+  type:'line',
+  data:{labels, datasets:[{label:'Viajes', data:serie.map(s=>s.viajes),
+    borderColor:'#0d2b52', backgroundColor:'rgba(13,43,82,.08)', fill:true, tension:.35, pointRadius:3}]},
+  options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}}}
+});
+new Chart(document.getElementById('chartNS'), {
+  type:'line',
+  data:{labels, datasets:[{label:'NS (%)', data:serie.map(s=>s.ns),
+    borderColor:'#1e8e3e', backgroundColor:'rgba(30,142,62,.10)', fill:true, tension:.35, pointRadius:3, spanGaps:false}]},
+  options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100}}}
+});
+const cr = {% if cr_actual is not None %}{{ cr_actual }}{% else %}null{% endif %};
+const gv = cr==null?0:cr;
+const gc = cr==null?'#ddd':(cr>=97?'#1e8e3e':cr>=80?'#f1c40f':'#e74c3c');
+new Chart(document.getElementById('gauge'), {
+  type:'doughnut',
+  data:{datasets:[{data:[gv,100-gv], backgroundColor:[gc,'#ecf0f1'], borderWidth:0}]},
+  options:{responsive:true, maintainAspectRatio:false, cutout:'72%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}
+});
+</script>
+{% endblock %}

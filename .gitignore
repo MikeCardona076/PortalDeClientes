@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+db.sqlite3
+.env
+staticfiles/
+data_cache/
+*.log
+legacy_flask/
+*.jpeg
+*.png

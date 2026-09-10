@@ -1,0 +1,10 @@
+Django>=5.1,<6.1
+requests>=2.31
+python-decouple>=3.8
+whitenoise>=6.6
+
+# Producción (Postgres + Celery)
+# psycopg[binary]>=3.1
+# celery>=5.3
+# redis>=5.0
+# gunicorn>=21

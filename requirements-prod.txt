@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Producción
+psycopg[binary]>=3.1
+gunicorn>=21
+celery>=5.3
+redis>=5.0

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Resumen {{ year }} · Portal Clientes{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h4 class="m-0 me-2">Matriz {{ year }}</h4>
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2">
+        <input type="hidden" name="window" value="{{ window }}">
+        <select name="anio" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+            {% for y in years %}<option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+        </select>
+        {% if es_admin %}
+        <select name="cliente" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+            <option value="">Todos los clientes</option>
+            {% for c in clientes_filtro %}
+              <option value="{{ c.id }}" {% if cliente_sel == c.id|stringformat:"s" %}selected{% endif %}>{{ c.nombre }}</option>
+            {% endfor %}
+        </select>
+        <select name="semana" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+            <option value="">Todas las semanas</option>
+            {% for w in all_weeks %}
+              <option value="{{ w }}" {% if semana_sel == w %}selected{% endif %}>Semana {{ w }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+    </form>
+    <div class="btn-group btn-group-sm">
+        <a class="btn btn-outline-primary {% if window == '14d' %}active{% endif %}"
+           href="?anio={{ year }}&window=14d{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}">CR 14d (plataforma)</a>
+        <a class="btn btn-outline-primary {% if window == '7d' %}active{% endif %}"
+           href="?anio={{ year }}&window=7d{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}">CR 7d (semana)</a>
+    </div>
+    <span class="badge text-bg-light border small">Semana actual: S{{ sem_actual }}</span>
+</div>
+
+<div class="btn-group btn-group-sm mb-2" id="metricToggle">
+    <button type="button" class="btn btn-outline-primary metric-btn active" data-metric="viajes">Viajes</button>
+    <button type="button" class="btn btn-outline-success metric-btn" data-metric="ns">Nivel Servicio</button>
+    <button type="button" class="btn btn-outline-info metric-btn" data-metric="cr">Calidad Ruta ({{ window }})</button>
+</div>
+
+{% if rows|length == 0 %}
+<div class="alert alert-info py-2 small">
+    Sin datos para {{ year }}. Corre la sincronización:
+    <code>python manage.py sync_semana {{ year }} &lt;semana&gt;</code> o <code>python manage.py backfill {{ year }}</code>.
+</div>
+{% endif %}
+
+<div class="card p-2">
+  <div class="scrollx">
+    <table class="table table-heat table-sm align-middle mb-0" id="heat">
+      <thead><tr>
+        <th class="sticky-cliente bg-white">Cliente</th>
+        {% for w in week_nums %}<th class="text-center"><div class="heat-head">S{{ w }}</div></th>{% endfor %}
+        <th class="text-center"><div class="heat-head">Total</div></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="sticky-cliente fw-semibold">
+            <a href="{% url 'metricas:cliente' %}?cliente={{ r.cliente.nombre|urlencode }}&anio={{ year }}&window={{ window }}">{{ r.cliente.nombre }}</a>
+          </td>
+          {% for c in r.cells %}
+            <td class="heat-cell" data-viajes="{{ c.viajes }}"
+                data-ns="{{ c.ns|default_if_none:'' }}" data-cr="{{ c.cr|default_if_none:'' }}"
+                onclick="goCliente('{{ r.cliente.nombre|escapejs }}', {{ c.week }})"
+                title="S{{ c.week }} · V:{{ c.viajes }}{% if c.ns is not None %} · NS:{{ c.ns }}%{% endif %}{% if c.cr is not None %} · CR:{{ c.cr }}%{% endif %}">
+              <span class="cell-txt"></span>
+            </td>
+          {% endfor %}
+          <td class="text-center fw-bold">{{ r.total }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const YEAR = {{ year }}, WINDOW = "{{ window }}";
+function goCliente(name, week){
+  location.href = "{% url 'metricas:cliente' %}?cliente=" + encodeURIComponent(name)
+     + "&anio=" + YEAR + "&semana=" + week + "&window=" + WINDOW;
+}
+function color(metric, val){
+  if (metric==='viajes'){
+    const max = window.maxV || 1, t = Math.min(1, val/max);
+    return {bg:'rgba(13,43,82,'+(0.05+0.8*t).toFixed(2)+')', fg: t>0.5?'#fff':'#333'};
+  }
+  if (val==null || isNaN(val) || val==='') return {bg:'#f2f2f2', fg:'#bbb'};
+  let bg='#e74c3c', fg='#fff';
+  if (val>=97){bg='#1e8e3e';}
+  else if (val>=90){bg='#7bc96f'; fg='#103a16';}
+  else if (val>=80){bg='#f7dc6f'; fg='#333';}
+  return {bg, fg};
+}
+function render(metric){
+  const cells = document.querySelectorAll('#heat tbody tr .heat-cell');
+  let maxV=0; cells.forEach(td=>{ maxV=Math.max(maxV, +td.dataset.viajes||0); });
+  window.maxV=maxV;
+  cells.forEach(td=>{
+    let val=null, txt='';
+    if (metric==='viajes'){ val=+td.dataset.viajes||0; txt=val; }
+    else if (metric==='ns'){ val=td.dataset.ns===''?null:+td.dataset.ns; if(val!=null) txt=Math.round(val)+'%'; }
+    else { val=td.dataset.cr===''?null:+td.dataset.cr; if(val!=null) txt=Math.round(val)+'%'; }
+    const c=color(metric,val); td.style.background=c.bg; td.style.color=c.fg;
+    td.querySelector('.cell-txt').textContent=txt;
+  });
+}
+document.querySelectorAll('#metricToggle .metric-btn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('#metricToggle .metric-btn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); render(b.dataset.metric);
+  });
+});
+render('viajes');
+</script>
+{% endblock %}

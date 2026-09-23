@@ -132,7 +132,7 @@ class ServicioRutaSemana(models.Model):
     descripcion = models.CharField(max_length=200, blank=True)
     fecha_inicio = models.DateField(null=True, blank=True)
     fecha_fin = models.DateField(null=True, blank=True)
-    car = models.CharField(max_length=30, blank=True)
+    car = models.CharField(max_length=80, blank=True)
     operador = models.CharField(max_length=120, blank=True)
     nomina = models.CharField(max_length=40, blank=True)
     prog_ini = models.TimeField(null=True, blank=True)

@@ -7,4 +7,5 @@ app_name = "metricas"
 urlpatterns = [
     path("", views.index, name="index"),
     path("cliente/", views.cliente, name="cliente"),
+    path("cliente/retrasos/", views.retrasos, name="retrasos"),
 ]

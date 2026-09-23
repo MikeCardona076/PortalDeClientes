@@ -50,7 +50,7 @@ class GrupoCliente(models.Model):
 
 
 class Semana(models.Model):
-    """Semana operativa domingo-sábado (número = semana ISO del domingo)."""
+    """Semana operativa ISO lunes-domingo (year + week ISO)."""
 
     year = models.PositiveIntegerField()
     week = models.PositiveIntegerField()
@@ -108,6 +108,87 @@ class CRClienteSemana(models.Model):
     class Meta:
         unique_together = ("cliente", "semana", "window_mode")
         indexes = [models.Index(fields=["semana", "window_mode"])]
+
+
+class ServicioRutaSemana(models.Model):
+    """Detalle normalizado de cada servicio del reporte rid=5.
+
+    `eta` = horario real y `time` = horario programado.
+    `dif_ini`/`dif_fin` = real - programado en minutos.
+    """
+
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.PROTECT, related_name="servicios"
+    )
+    grupo = models.ForeignKey(
+        GrupoCliente, on_delete=models.PROTECT, related_name="servicios"
+    )
+    semana = models.ForeignKey(
+        Semana, on_delete=models.PROTECT, related_name="servicios"
+    )
+    external_id = models.CharField(max_length=40)
+    service_id = models.CharField(max_length=60, blank=True)
+    ruta_seq = models.CharField(max_length=20)
+    descripcion = models.CharField(max_length=200, blank=True)
+    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_fin = models.DateField(null=True, blank=True)
+    car = models.CharField(max_length=30, blank=True)
+    operador = models.CharField(max_length=120, blank=True)
+    nomina = models.CharField(max_length=40, blank=True)
+    prog_ini = models.TimeField(null=True, blank=True)
+    real_ini = models.TimeField(null=True, blank=True)
+    dif_ini = models.IntegerField(null=True, blank=True)
+    prog_fin = models.TimeField(null=True, blank=True)
+    real_fin = models.TimeField(null=True, blank=True)
+    dif_fin = models.IntegerField(null=True, blank=True)
+    diagnostico_inicio = models.CharField(max_length=20, blank=True)
+    diagnostico_viaje = models.CharField(max_length=80, blank=True)
+    estado_viaje = models.CharField(max_length=60, blank=True)
+    status = models.CharField(max_length=5, blank=True)
+    tipo_viaje = models.CharField(max_length=5, blank=True)
+    shift = models.CharField(max_length=5, blank=True)
+    record_quality = models.CharField(max_length=5, blank=True)
+    es_entrada = models.BooleanField(default=False)
+    es_retraso = models.BooleanField(default=False)
+    source = models.CharField(max_length=10, default="api")
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("business_unit", "semana", "external_id")
+        indexes = [
+            models.Index(fields=["business_unit", "semana", "ruta_seq"]),
+            models.Index(fields=["business_unit", "semana", "es_retraso"]),
+        ]
+        verbose_name = "Servicio de ruta"
+        verbose_name_plural = "Servicios de ruta"
+
+
+class RutaIndicadoresSemana(models.Model):
+    """Resumen de servicios, retrasos y NS por ruta y semana."""
+
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.CASCADE, related_name="ruta_indicadores"
+    )
+    grupo = models.ForeignKey(
+        GrupoCliente, on_delete=models.CASCADE, related_name="ruta_indicadores"
+    )
+    semana = models.ForeignKey(
+        Semana, on_delete=models.CASCADE, related_name="ruta_indicadores"
+    )
+    ruta_seq = models.CharField(max_length=20)
+    descripcion = models.CharField(max_length=200, blank=True)
+    servicios = models.IntegerField(default=0)
+    entradas = models.IntegerField(default=0)
+    retrasos = models.IntegerField(default=0)
+    ns = models.FloatField(null=True, blank=True)
+    source = models.CharField(max_length=10, default="api")
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("business_unit", "semana", "grupo", "ruta_seq")
+        indexes = [models.Index(fields=["business_unit", "semana"])]
+        verbose_name = "Indicadores por ruta"
+        verbose_name_plural = "Indicadores por ruta"
 
 
 class MaeRuta(models.Model):

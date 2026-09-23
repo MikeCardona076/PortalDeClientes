@@ -14,7 +14,9 @@ from apps.core.models import (
     CRRutaSemana,
     GrupoCliente,
     RefinamientoRuta,
+    RutaIndicadoresSemana,
     Semana,
+    ServicioRutaSemana,
     SyncLog,
     ViajeSemana,
 )
@@ -183,6 +185,83 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
     return hechos
 
 
+def _sync_servicios(semana_obj, bunit_code, rows):
+    """Persiste los servicios de rid=5 y recalcula indicadores por ruta."""
+    bu, _ = BusinessUnit.objects.get_or_create(
+        code=bunit_code, defaults={"nombre": bunit_code}
+    )
+    servicios = [
+        ns.normalize_service(r) for r in (rows or []) if isinstance(r, dict)
+    ]
+    servicios = [s for s in servicios if s["external_id"]]
+    ids = {s["external_id"] for s in servicios}
+
+    ServicioRutaSemana.objects.filter(
+        business_unit=bu, semana=semana_obj
+    ).exclude(external_id__in=ids).delete()
+
+    group_cache = {}
+
+    def get_grupo(group):
+        if group not in group_cache:
+            group_cache[group] = _grupo(group, bunit_code=bunit_code)
+        return group_cache[group]
+
+    for s in servicios:
+        ServicioRutaSemana.objects.update_or_create(
+            business_unit=bu,
+            semana=semana_obj,
+            external_id=s["external_id"],
+            defaults={
+                "grupo": get_grupo(s["grupo"]),
+                "service_id": s["service_id"],
+                "ruta_seq": s["ruta_seq"],
+                "descripcion": s["descripcion"],
+                "fecha_inicio": s["fecha_inicio"],
+                "fecha_fin": s["fecha_fin"],
+                "car": s["car"],
+                "operador": s["operador"],
+                "nomina": s["nomina"],
+                "prog_ini": s["prog_ini"],
+                "real_ini": s["real_ini"],
+                "dif_ini": s["dif_ini"],
+                "prog_fin": s["prog_fin"],
+                "real_fin": s["real_fin"],
+                "dif_fin": s["dif_fin"],
+                "diagnostico_inicio": s["diagnostico_inicio"],
+                "diagnostico_viaje": s["diagnostico_viaje"],
+                "estado_viaje": s["estado_viaje"],
+                "status": s["status"],
+                "tipo_viaje": s["tipo_viaje"],
+                "shift": s["shift"],
+                "record_quality": s["record_quality"],
+                "es_entrada": s["es_entrada"],
+                "es_retraso": s["es_retraso"],
+                "source": "api",
+            },
+        )
+
+    RutaIndicadoresSemana.objects.filter(
+        business_unit=bu, semana=semana_obj
+    ).delete()
+    for (group, ruta), data in ns.aggregate_servicios(servicios).items():
+        RutaIndicadoresSemana.objects.update_or_create(
+            business_unit=bu,
+            semana=semana_obj,
+            grupo=get_grupo(group),
+            ruta_seq=ruta,
+            defaults={
+                "descripcion": data["descripcion"],
+                "servicios": data["servicios"],
+                "entradas": data["entradas"],
+                "retrasos": data["retrasos"],
+                "ns": data["ns"],
+                "source": "api",
+            },
+        )
+    return len(servicios)
+
+
 @transaction.atomic
 def sync_semana(year, week, bunits=None, force=False):
     """Sincroniza una semana operativa (lunes-domingo) para las UDN indicadas."""
@@ -215,6 +294,16 @@ def sync_semana(year, week, bunits=None, force=False):
         rows = []
         try:
             rows = api.fetch_report(bu, monday.isoformat(), end)
+            if rows:
+                _sync_servicios(semana_obj, bu, rows)
+            else:
+                SyncLog.objects.create(
+                    proceso="servicios",
+                    year=year,
+                    week=week,
+                    estado="parcial",
+                    mensaje=f"{bu}: rid=5 vacío; no se reemplazó el detalle existente",
+                )
             agg = ns.aggregate_rows(rows)
             for cliente_base, data in agg.items():
                 cliente = _cliente(cliente_base)

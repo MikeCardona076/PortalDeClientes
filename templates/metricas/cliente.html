@@ -2,12 +2,13 @@
 {% block title %}{{ cliente.nombre }} · S{{ week }} {{ year }}{% endblock %}
 {% block content %}
 <div class="flex flex-wrap items-center gap-3 mb-4">
-    <a href="{% url 'metricas:index' %}?anio={{ year }}&window={{ window }}"
+    <a href="{% url 'metricas:index' %}?anio={{ year }}&window={{ window }}&udn={{ udn|urlencode }}"
        class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-600 text-sm font-medium hover:bg-slate-100 transition">← Matriz {{ year }}</a>
     <h1 class="text-2xl md:text-3xl font-black tracking-tight">
         <span class="bg-gradient-to-r from-blue-950 to-blue-700 bg-clip-text text-transparent">{{ cliente.nombre }}</span>
     </h1>
     <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Semana {{ week }}, {{ year }}</span>
+    <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">UDN {{ bu.nombre }} ({{ udn }})</span>
     <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950 text-white">CR {{ window }}</span>
 </div>
 
@@ -55,12 +56,17 @@
         </div>
     </div>
     <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:col-span-2">
-        <h6 class="text-sm font-semibold text-blue-950 mb-2">Detalle por ruta (IN/N)</h6>
+        <h6 class="text-sm font-semibold text-blue-950 mb-2">Detalle por ruta y servicio (IN/N)</h6>
         <div class="overflow-auto max-h-[320px]">
         <table class="w-full text-sm">
             <thead class="sticky top-0 bg-slate-50">
                 <tr class="text-left text-xs uppercase text-slate-500 border-b border-slate-200">
-                    <th class="px-3 py-2 font-medium">Ruta</th><th class="px-3 py-2 font-medium">Descripción</th><th class="px-3 py-2 font-medium text-center">Servicios</th><th class="px-3 py-2 font-medium text-center">Calidad</th>
+                    <th class="px-3 py-2 font-medium">Ruta</th>
+                    <th class="px-3 py-2 font-medium">Descripción</th>
+                    <th class="px-3 py-2 font-medium text-center">Servicios</th>
+                    <th class="px-3 py-2 font-medium text-center">Retrasos</th>
+                    <th class="px-3 py-2 font-medium text-center">NS</th>
+                    <th class="px-3 py-2 font-medium text-center">Calidad</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
@@ -69,15 +75,53 @@
                     <td class="px-3 py-2 font-semibold text-blue-950">{{ d.ruta_seq }}</td>
                     <td class="px-3 py-2 text-slate-600">{{ d.descripcion }}</td>
                     <td class="px-3 py-2 text-center text-slate-600">{{ d.servicios }}</td>
+                    <td class="px-3 py-2 text-center text-slate-600">
+                        {% if d.retrasos %}
+                        <button type="button"
+                                class="text-blue-700 font-semibold underline decoration-dotted"
+                                data-ruta="{{ d.ruta_seq }}"
+                                data-grupo="{{ d.grupo.id }}"
+                                onclick="abrirRetrasos(this.dataset.ruta, this.dataset.grupo)">{{ d.retrasos }}</button>
+                        {% else %}0{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-center text-slate-600">{% if d.ns is not None %}{{ d.ns }}%{% else %}—{% endif %}</td>
                     <td class="px-3 py-2 text-center">
+                        {% if d.calidad is not None %}
                         <span class="inline-block text-xs px-2 py-1 rounded-full font-semibold {% if d.calidad >= 97 %}bg-emerald-100 text-emerald-700{% elif d.calidad >= 80 %}bg-amber-100 text-amber-800{% else %}bg-red-100 text-red-700{% endif %}">{{ d.calidad }}%</span>
+                        {% else %}<span class="text-slate-400">—</span>{% endif %}
                     </td>
                 </tr>
             {% empty %}
-                <tr><td colspan="4" class="px-3 py-8 text-center text-slate-500">Sin datos. Corre la sincronización.</td></tr>
+                <tr><td colspan="6" class="px-3 py-8 text-center text-slate-500">Sin datos. Corre la sincronización.</td></tr>
             {% endfor %}
             </tbody>
         </table>
+        </div>
+    </div>
+</div>
+
+<div id="modal-retrasos" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/40" onclick="cerrarRetrasos()"></div>
+    <div class="relative mx-auto mt-8 w-[96%] max-w-7xl rounded-2xl bg-white shadow-xl">
+        <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <h3 id="retrasos-titulo" class="font-bold text-blue-950">Retrasos</h3>
+            <button type="button" class="text-slate-500 hover:text-slate-800" onclick="cerrarRetrasos()">Cerrar</button>
+        </div>
+        <div class="overflow-auto max-h-[70vh] p-4">
+            <div id="retrasos-estado" class="mb-2 text-sm text-slate-500"></div>
+            <table class="w-full text-xs">
+                <thead class="sticky top-0 bg-slate-50">
+                    <tr class="text-left uppercase text-slate-500">
+                        <th class="px-2 py-1">id</th><th class="px-2 py-1">Fecha inicio</th><th class="px-2 py-1">Fecha fin</th>
+                        <th class="px-2 py-1">Ruta</th><th class="px-2 py-1">Cliente</th><th class="px-2 py-1">UDN</th>
+                        <th class="px-2 py-1">Veh</th><th class="px-2 py-1">Operador</th><th class="px-2 py-1">Nómina</th>
+                        <th class="px-2 py-1">Prog ini</th><th class="px-2 py-1">Real ini</th><th class="px-2 py-1">Dif ini</th>
+                        <th class="px-2 py-1">Prog fin</th><th class="px-2 py-1">Real fin</th><th class="px-2 py-1">Dif fin</th>
+                        <th class="px-2 py-1">Diagnóstico Inicio</th>
+                    </tr>
+                </thead>
+                <tbody id="retrasos-body" class="divide-y divide-slate-100"></tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -107,6 +151,66 @@ new Chart(document.getElementById('gauge'), {
   type:'doughnut',
   data:{datasets:[{data:[gv,100-gv], backgroundColor:[gc,'#f1f5f9'], borderWidth:0}]},
   options:{responsive:true, maintainAspectRatio:false, cutout:'72%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}
+});
+
+const RETRASOS_DATA = {
+  url: "{% url 'metricas:retrasos' %}",
+  cliente: "{{ cliente.nombre|escapejs }}",
+  udn: "{{ udn|escapejs }}",
+  anio: "{{ year }}",
+  semana: "{{ week }}"
+};
+function fmtDif(v){
+  if(v===null || v===undefined || v==='') return '—';
+  const n = Number(v);
+  return (n>0 ? '+' : '') + n + ' min';
+}
+function abrirRetrasos(ruta, grupo){
+  const modal = document.getElementById('modal-retrasos');
+  const body = document.getElementById('retrasos-body');
+  const estado = document.getElementById('retrasos-estado');
+  document.getElementById('retrasos-titulo').textContent = 'Retrasos · Ruta ' + ruta;
+  body.innerHTML = '';
+  estado.textContent = 'Cargando…';
+  modal.classList.remove('hidden');
+  const params = new URLSearchParams({
+    cliente: RETRASOS_DATA.cliente,
+    udn: RETRASOS_DATA.udn,
+    anio: RETRASOS_DATA.anio,
+    semana: RETRASOS_DATA.semana,
+    ruta: ruta,
+    grupo: grupo
+  });
+  fetch(RETRASOS_DATA.url + '?' + params.toString(), {credentials: 'same-origin'})
+    .then(r => r.json())
+    .then(data => {
+      estado.textContent = data.total
+        ? data.total + ' servicio(s) retrasado(s)'
+        : 'Sin retrasos.';
+      (data.rows || []).forEach(row => {
+        const valores = [
+          row.id, row.fecha_inicio, row.fecha_fin, row.ruta, row.cliente, row.udn,
+          row.veh, row.operador, row.nomina, row.prog_ini, row.real_ini,
+          fmtDif(row.dif_ini), row.prog_fin, row.real_fin, fmtDif(row.dif_fin),
+          row.diagnostico_inicio || '—'
+        ];
+        const tr = document.createElement('tr');
+        valores.forEach(v => {
+          const td = document.createElement('td');
+          td.className = 'px-2 py-1 whitespace-nowrap';
+          td.textContent = (v===null || v===undefined || v==='') ? '—' : v;
+          tr.appendChild(td);
+        });
+        body.appendChild(tr);
+      });
+    })
+    .catch(() => { estado.textContent = 'Error al cargar el detalle.'; });
+}
+function cerrarRetrasos(){
+  document.getElementById('modal-retrasos').classList.add('hidden');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') cerrarRetrasos();
 });
 </script>
 {% endblock %}

@@ -28,14 +28,14 @@
         </select>
         {% endif %}
     </form>
-    <span class="ml-auto text-sm font-semibold text-slate-600">Semana actual: <span class="text-blue-950">S{{ sem_actual }}</span></span>
+    <span class="ml-auto text-sm font-semibold text-slate-600">UDN: <span class="text-blue-950">{{ udn }}</span> · Semana actual: <span class="text-blue-950">S{{ sem_actual }}</span></span>
 </div>
 
 <div class="flex flex-wrap items-center gap-2 mb-3">
     <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm" id="winToggle">
-        <a href="?anio={{ year }}&window=14d{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
+        <a href="?anio={{ year }}&window=14d&udn={{ udn|urlencode }}{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
            class="win-btn px-3 py-1.5 rounded-md text-sm transition {% if window == '14d' %}bg-blue-950 text-white font-medium shadow-[0_0_10px_rgba(251,191,36,0.25)]{% else %}text-slate-600 hover:bg-slate-100{% endif %}">CR 14d (plataforma)</a>
-        <a href="?anio={{ year }}&window=7d{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
+        <a href="?anio={{ year }}&window=7d&udn={{ udn|urlencode }}{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
            class="win-btn px-3 py-1.5 rounded-md text-sm transition {% if window == '7d' %}bg-blue-950 text-white font-medium shadow-[0_0_10px_rgba(251,191,36,0.25)]{% else %}text-slate-600 hover:bg-slate-100{% endif %}">CR 7d (semana)</a>
     </div>
     <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm" id="metricToggle">
@@ -67,7 +67,7 @@
       {% for r in rows %}
         <tr class="hover:bg-slate-50">
           <td class="sticky-cliente px-3 py-1.5 font-semibold text-blue-950 whitespace-nowrap">
-            <a href="{% url 'metricas:cliente' %}?cliente={{ r.cliente.nombre|urlencode }}&anio={{ year }}&window={{ window }}">{{ r.cliente.nombre }}</a>
+            <a href="{% url 'metricas:cliente' %}?cliente={{ r.cliente.nombre|urlencode }}&anio={{ year }}&window={{ window }}&udn={{ udn|urlencode }}">{{ r.cliente.nombre }}</a>
           </td>
           {% for c in r.cells %}
             <td class="heat-cell rounded" data-viajes="{{ c.viajes }}"
@@ -88,10 +88,11 @@
 
 {% block scripts %}
 <script>
-const YEAR = {{ year }}, WINDOW = "{{ window }}";
+const YEAR = {{ year }}, WINDOW = "{{ window }}", UDN = "{{ udn|escapejs }}";
 function goCliente(name, week){
   location.href = "{% url 'metricas:cliente' %}?cliente=" + encodeURIComponent(name)
-     + "&anio=" + YEAR + "&semana=" + week + "&window=" + WINDOW;
+     + "&anio=" + YEAR + "&semana=" + week + "&window=" + WINDOW
+     + "&udn=" + encodeURIComponent(UDN);
 }
 function color(metric, val){
   if (metric==='viajes'){

@@ -10,7 +10,9 @@ from .models import (
     MaeRuta,
     PerfilUsuario,
     RefinamientoRuta,
+    RutaIndicadoresSemana,
     Semana,
+    ServicioRutaSemana,
     SyncLog,
     ViajeSemana,
 )
@@ -87,4 +89,24 @@ class GpsPuntoAdmin(admin.ModelAdmin):
 class RefinamientoRutaAdmin(admin.ModelAdmin):
     list_display = ("grupo", "ruta_seq", "activo", "tol_m", "ventana_min")
     list_filter = ("activo", "grupo")
+    search_fields = ("ruta_seq", "grupo__group")
+
+
+@admin.register(ServicioRutaSemana)
+class ServicioRutaSemanaAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_unit", "grupo", "semana", "ruta_seq", "fecha_inicio",
+        "car", "operador", "dif_ini", "dif_fin", "es_retraso",
+    )
+    list_filter = ("business_unit", "semana__year", "es_retraso", "source")
+    search_fields = ("external_id", "service_id", "ruta_seq", "car", "operador", "nomina")
+
+
+@admin.register(RutaIndicadoresSemana)
+class RutaIndicadoresSemanaAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_unit", "grupo", "semana", "ruta_seq",
+        "servicios", "entradas", "retrasos", "ns",
+    )
+    list_filter = ("business_unit", "semana__year", "source")
     search_fields = ("ruta_seq", "grupo__group")

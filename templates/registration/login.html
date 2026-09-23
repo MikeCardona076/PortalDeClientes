@@ -1,28 +1,35 @@
 {% extends "base.html" %}
 {% block title %}Ingresar · Portal Clientes{% endblock %}
 {% block content %}
-<div class="row justify-content-center mt-5">
-  <div class="col-md-4">
-    <div class="card p-4">
-      <h4 class="mb-3 text-center">Portal Clientes</h4>
-      {% if form.errors %}<div class="alert alert-danger py-2 small">Usuario o contraseña incorrectos.</div>{% endif %}
-      <form method="post" action="{% url 'login' %}">
-        {% csrf_token %}
-        <div class="mb-3">
-          <label class="form-label">Usuario</label>
-          <input type="text" name="username" class="form-control" autofocus required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Contraseña</label>
-          <input type="password" name="password" class="form-control" required>
-        </div>
-        <button class="btn btn-primary w-100">Ingresar</button>
-        <input type="hidden" name="next" value="{{ next }}">
-      </form>
-      <div class="text-center mt-3 small">
-        <a href="{% url 'password_reset' %}">¿Olvidaste tu contraseña?</a>
-      </div>
+<div class="flex items-center justify-center py-12">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-bold tracking-tight">
+        <span class="bg-gradient-to-r from-blue-950 to-blue-700 bg-clip-text text-transparent">Portal Clientes</span><span class="text-amber-400">.</span>
+      </h1>
+      <p class="text-sm text-slate-500 mt-1">SETTEPI Pacífico</p>
     </div>
+    <form method="post" action="{% url 'login' %}" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+      {% csrf_token %}
+      {% if form.errors %}
+      <div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Usuario o contraseña incorrectos.</div>
+      {% endif %}
+      <div>
+        <label for="username" class="block text-sm font-medium text-slate-700 mb-1">Usuario</label>
+        <input type="text" name="username" id="username" required autofocus
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-950 focus:border-blue-950">
+      </div>
+      <div>
+        <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
+        <input type="password" name="password" id="password" required
+               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-950 focus:border-blue-950">
+      </div>
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit" class="w-full bg-gradient-to-r from-blue-950 to-blue-800 text-white rounded-lg py-2.5 text-sm font-medium hover:from-blue-900 hover:to-blue-700 transition">Ingresar</button>
+      <div class="text-center">
+        <a href="{% url 'password_reset' %}" class="text-xs text-slate-500 hover:text-amber-500 transition">¿Olvidaste tu contraseña?</a>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}

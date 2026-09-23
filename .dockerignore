@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+db.sqlite3
+
+# Django
+staticfiles/
+data_cache/
+*.log
+
+# Legacy (tokens hardcodeados)
+legacy_flask/
+
+# Otros
+*.jpeg
+*.png
+.DS_Store
+README.md
+Judgeman.md
+ANALISIS_CALIDAD_RUTA.md
+API Traffilog v4.3 2025.md

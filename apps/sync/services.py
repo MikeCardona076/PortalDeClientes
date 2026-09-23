@@ -31,13 +31,13 @@ def _bunits(bunits):
 
 
 def _semana(year, week):
-    sunday, saturday = week_window(year, week)
-    if sunday is None:
+    monday, sunday = week_window(year, week)
+    if monday is None:
         raise ValueError(f"Semana inválida: {year}-W{week}")
-    obj, _ = Semana.objects.get_or_create(
-        year=year, week=week, defaults={"inicio": sunday, "fin": saturday}
+    obj, _ = Semana.objects.update_or_create(
+        year=year, week=week, defaults={"inicio": monday, "fin": sunday}
     )
-    return obj, sunday, saturday
+    return obj, monday, sunday
 
 
 def _cliente(nombre):
@@ -125,7 +125,7 @@ def _recompute_cliente_cr(semana_obj, window_mode):
         )
 
 
-def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, sunday, start14, end):
+def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, start14, end):
     """Aplica GPS a las rutas marcadas en RefinamientoRuta (14d y 7d)."""
     refs = list(
         RefinamientoRuta.objects.filter(
@@ -162,7 +162,7 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, sunday, star
         if not route:
             continue
         for mode, trips_src, ini in (
-            ("7d", rows, sunday.isoformat()),
+            ("7d", rows, monday.isoformat()),
             ("14d", rows14, start14),
         ):
             calidad, _ = gps.refinar_ruta(
@@ -185,10 +185,10 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, sunday, star
 
 @transaction.atomic
 def sync_semana(year, week, bunits=None, force=False):
-    """Sincroniza una semana operativa (domingo-sábado) para las UDN indicadas."""
-    semana_obj, sunday, saturday = _semana(year, week)
-    start14 = (sunday - timedelta(days=7)).isoformat()
-    end = saturday.isoformat()
+    """Sincroniza una semana operativa (lunes-domingo) para las UDN indicadas."""
+    semana_obj, monday, sunday = _semana(year, week)
+    start14 = (monday - timedelta(days=7)).isoformat()
+    end = sunday.isoformat()
 
     resumen = {"year": year, "week": week, "bunits": [], "clientes_cr": 0, "clientes_ns": 0, "gps": 0}
 
@@ -204,7 +204,7 @@ def sync_semana(year, week, bunits=None, force=False):
 
         stats14 = cr.route_stats(trips)
         trips7 = [
-            t for t in trips if sunday.isoformat() <= str(t.get("start_date") or "")[:10] <= end
+            t for t in trips if monday.isoformat() <= str(t.get("start_date") or "")[:10] <= end
         ]
         stats7 = cr.route_stats(trips7)
 
@@ -214,7 +214,7 @@ def sync_semana(year, week, bunits=None, force=False):
         # Viajes / NS (rid=5) de la semana exacta
         rows = []
         try:
-            rows = api.fetch_report(bu, sunday.isoformat(), end)
+            rows = api.fetch_report(bu, monday.isoformat(), end)
             agg = ns.aggregate_rows(rows)
             for cliente_base, data in agg.items():
                 cliente = _cliente(cliente_base)
@@ -236,7 +236,7 @@ def sync_semana(year, week, bunits=None, force=False):
 
         # Refinamiento GPS de rutas marcadas (14d y 7d)
         gps_n = _aplicar_refinamientos(
-            semana_obj, bu, trips, rows, year, week, sunday, start14, end
+            semana_obj, bu, trips, rows, year, week, monday, start14, end
         )
         resumen["gps"] += gps_n
 

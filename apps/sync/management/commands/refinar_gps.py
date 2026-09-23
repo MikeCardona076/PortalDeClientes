@@ -25,11 +25,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **o):
         year, week = o["year"], o["week"]
-        sunday, saturday = week_window(year, week)
-        start14 = (sunday - timedelta(days=7)).isoformat()
-        end = saturday.isoformat()
+        monday, sunday = week_window(year, week)
+        start14 = (monday - timedelta(days=7)).isoformat()
+        end = sunday.isoformat()
 
-        rows = api.fetch_report(o["bunit"], sunday.isoformat(), end)
+        rows = api.fetch_report(o["bunit"], monday.isoformat(), end)
         rows14 = api.fetch_report(o["bunit"], start14, end)
         mae = api.fetch_routes(o["bunit"])
         route = next(
@@ -50,12 +50,12 @@ class Command(BaseCommand):
         if o["guardar"]:
             grupo, _ = GrupoCliente.objects.get_or_create(group=o["grupo"])
             semana_obj, _ = Semana.objects.get_or_create(
-                year=year, week=week, defaults={"inicio": sunday, "fin": saturday}
+                year=year, week=week, defaults={"inicio": monday, "fin": sunday}
             )
 
         client = gps.TraffilogClient()
         for mode, trips_src, ini in (
-            ("7d", rows, sunday.isoformat()),
+            ("7d", rows, monday.isoformat()),
             ("14d", rows14, start14),
         ):
             calidad, n = gps.refinar_ruta(

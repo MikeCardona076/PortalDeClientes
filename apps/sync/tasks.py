@@ -19,11 +19,18 @@ def tarea_sync_semana(year, week, bunits=None):
 
 @shared_task
 def tarea_sync_semana_actual(bunits=None):
-    """Sincroniza la semana operativa en curso (para Celery beat)."""
-    from apps.bustrax.weeks import current_week
+    """Sincroniza la semana en curso y la anterior (para Celery beat).
+
+    La semana anterior se re-sincroniza porque, al cerrarse el sábado,
+    su último día aún no estaba completo en la corrida previa.
+    """
+    from apps.bustrax.weeks import current_week, prev_week
 
     year, week = current_week()
-    return sync_semana(year, week, bunits=bunits)
+    actual = sync_semana(year, week, bunits=bunits)
+    pyear, pweek = prev_week(year, week)
+    anterior = sync_semana(pyear, pweek, bunits=bunits)
+    return {"actual": {"year": year, "week": week}, "anterior": {"year": pyear, "week": pweek}}
 
 
 @shared_task

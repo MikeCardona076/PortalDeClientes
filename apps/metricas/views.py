@@ -2,7 +2,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 
-from apps.bustrax.weeks import current_week, sunday_of_week, weeks_of_year
+from apps.bustrax.weeks import current_week, weeks_of_year
 from apps.core.models import (
     Cliente,
     CRClienteSemana,

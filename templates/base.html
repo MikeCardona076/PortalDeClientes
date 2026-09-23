@@ -4,48 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Portal Clientes · SETTEPI Pacífico{% endblock %}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background:#f4f6f9; }
-        .navbar-bt { background:#0d2b52; }
-        .card { border:none; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.06); }
-        .kpi-label { font-size:.8rem; color:#7f8c8d; text-transform:uppercase; letter-spacing:1px; }
-        .kpi-value { font-size:1.9rem; font-weight:bold; color:#2c3e50; }
-        .heat-cell { min-width:54px; text-align:center; cursor:pointer; font-size:.72rem; padding:4px 2px !important; }
-        .heat-cell:hover { outline:2px solid #0d2b52; }
-        .heat-head { writing-mode:vertical-rl; transform:rotate(180deg); height:68px; font-size:.72rem; text-align:center; white-space:nowrap; }
-        th.sticky-cliente, td.sticky-cliente { position:sticky; left:0; background:#fff; z-index:2; }
-        .table-heat td, .table-heat th { border:none; }
-        .scrollx { overflow-x:auto; }
-        .legend { display:inline-block; width:12px; height:12px; border-radius:2px; }
-        .gauge-wrap { position:relative; width:200px; margin:0 auto; }
-        .gauge-center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+        html { scroll-behavior: smooth; }
+        .heat-head { writing-mode: vertical-rl; transform: rotate(180deg); }
+        .heat-cell { min-width: 52px; text-align: center; cursor: pointer; font-size: .72rem; }
+        .heat-cell:hover { outline: 2px solid #172554; }
+        th.sticky-cliente, td.sticky-cliente { position: sticky; left: 0; background: #fff; z-index: 2; }
     </style>
 </head>
-<body>
-<nav class="navbar navbar-dark navbar-bt mb-4">
-    <div class="container-fluid px-4">
-        <a class="navbar-brand mb-0 h5" href="{% url 'metricas:index' %}">📊 Portal Clientes · SETTEPI Pacífico</a>
-        <div class="d-flex align-items-center text-white-50 small gap-3">
+<body class="bg-white text-slate-800 min-h-screen flex flex-col antialiased">
+<header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <a href="{% url 'metricas:index' %}" class="flex items-center gap-1 text-xl md:text-2xl font-black tracking-tight">
+            <span class="bg-gradient-to-r from-blue-950 to-blue-700 bg-clip-text text-transparent">Portal Clientes</span><span class="text-amber-400">.</span>
+            <span class="hidden sm:inline text-sm font-semibold text-slate-400 mt-1">SETTEPI Pacífico</span>
+        </a>
+        <div class="flex items-center gap-3 text-sm">
             {% if user.is_authenticated %}
-                <span>{{ user.get_full_name|default:user.username }}{% if scope_es_admin %} · admin{% endif %}</span>
-                {% if user.is_staff %}<a class="text-white-50" href="/admin/">Admin</a>{% endif %}
-                <form method="post" action="{% url 'logout' %}" class="m-0">
+                <span class="text-slate-600">{{ user.get_full_name|default:user.username }}{% if scope_es_admin %} · admin{% endif %}</span>
+                {% if user.is_staff %}<a href="/admin/" class="text-slate-600 hover:bg-slate-100 rounded-lg px-3 py-1.5 transition">Admin</a>{% endif %}
+                <form method="post" action="{% url 'logout' %}" class="inline">
                     {% csrf_token %}
-                    <button class="btn btn-sm btn-outline-light">Salir</button>
+                    <button type="submit" class="text-slate-500 hover:text-amber-500 transition">Salir</button>
                 </form>
             {% endif %}
         </div>
     </div>
-</nav>
-<div class="container-fluid px-4 pb-5">
+</header>
+<main class="max-w-7xl mx-auto px-4 py-6 w-full flex-1">
     {% if messages %}
-        {% for m in messages %}<div class="alert alert-{{ m.tags }} py-2">{{ m }}</div>{% endfor %}
+        {% for m in messages %}
+        <div class="mb-4 rounded-2xl border p-4 shadow-sm {% if m.tags == 'error' %}border-red-200 bg-red-50 text-red-800{% elif m.tags == 'success' %}border-emerald-200 bg-emerald-50 text-emerald-800{% elif m.tags == 'warning' %}border-amber-200 bg-amber-50 text-amber-800{% else %}border-blue-200 bg-blue-50 text-blue-800{% endif %}">{{ m }}</div>
+        {% endfor %}
     {% endif %}
     {% block content %}{% endblock %}
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</main>
 {% block scripts %}{% endblock %}
 </body>
 </html>

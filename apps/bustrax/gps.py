@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import requests
 from django.conf import settings
 
-from .weeks import sunday_of_week
+from .weeks import week_window
 
 
 class TraffilogError(Exception):
@@ -153,11 +153,11 @@ def services_from_trips(route, trips, year, week, start=None, end=None):
     if not stops:
         return []
     if start is None or end is None:
-        sunday = sunday_of_week(year, week)
-        if sunday is None:
+        monday, sunday = week_window(year, week)
+        if monday is None:
             return []
-        start = sunday.isoformat()
-        end = (sunday + timedelta(days=6)).isoformat()
+        start = monday.isoformat()
+        end = sunday.isoformat()
     s_start, s_end = start, end
     stop_list = [
         {"index": i, "id": s.get("id"), "des": s.get("des"), "lat": s.get("lat"),

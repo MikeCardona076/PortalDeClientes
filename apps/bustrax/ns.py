@@ -73,17 +73,20 @@ def trip_flags(row):
         else:
             rq_ok = str(recq).strip() == "1"
 
+    cancelado = (estado == "Cancelado") or (status == "9")
+    completado = status in ("5", "6", "7", "8")
     tipo_estado = 1 if ((status in ("6", "7", "8") and tipo != "VA") or tipo in ("N", "V")) else 0
     retraso_valido = 1 if (shift == "IN" and rq_ok and tipo_estado == 1) else 0
     entrada = 1 if (
-        tipo == "N" and shift == "IN" and estado != "Cancelado" and not _excluido(group)
+        tipo == "N" and shift == "IN" and completado and not cancelado and not _excluido(group)
     ) else 0
 
     val_ret = 0
     if entrada and retraso_valido:
         d = dif_llegada(row)
         val_ret = 1 if RETRASO_MIN < d < RETRASO_MAX else 0
-    return 1, entrada, val_ret
+    total = 1 if (completado and not cancelado) else 0
+    return total, entrada, val_ret
 
 
 def aggregate_rows(rows):

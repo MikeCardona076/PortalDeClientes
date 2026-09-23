@@ -2,23 +2,30 @@ services:
   web:
     build: .
     container_name: clientesd_web
+    restart: unless-stopped
     env_file: .env
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - static:/app/staticfiles
+    networks:
+      - default
+      - web_network
 
   worker:
     build: .
     container_name: clientesd_worker
+    restart: unless-stopped
     command: celery -A config worker -l info
     env_file: .env
     environment:
@@ -27,12 +34,15 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   beat:
     build: .
     container_name: clientesd_beat
+    restart: unless-stopped
     command: celery -A config beat -l info --schedule=/app/beat/celerybeat-schedule
     env_file: .env
     environment:
@@ -43,24 +53,58 @@ services:
     volumes:
       - beatdata:/app/beat
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   db:
     image: postgres:16
     container_name: clientesd_db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-clientesd}
       POSTGRES_USER: ${POSTGRES_USER:-clientesd}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clientesd}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clientesd} -d ${POSTGRES_DB:-clientesd}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  db_backup:
+    image: postgres:16-alpine
+    container_name: clientesd_db_backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-clientesd}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-clientesd}
+      PGDATABASE: ${POSTGRES_DB:-clientesd}
+      BACKUP_RETENTION_DAYS: "7"
+      BACKUP_INTERVAL_SECONDS: "86400"
+    volumes:
+      - ./deploy/pg_backup.sh:/backup.sh:ro
+      - pgbackups:/backups
+    entrypoint: ["/bin/sh", "/backup.sh"]
 
   redis:
     image: redis:7-alpine
     container_name: clientesd_redis
+    restart: unless-stopped
 
 volumes:
   pgdata:
   static:
   beatdata:
+  pgbackups:
+
+networks:
+  web_network:
+    external: true

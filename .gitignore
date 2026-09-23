@@ -9,3 +9,10 @@ data_cache/
 legacy_flask/
 *.jpeg
 *.png
+
+# Backups y dumps
+backups/
+*.dump
+*.sql
+*.sql.gz
+*.backup

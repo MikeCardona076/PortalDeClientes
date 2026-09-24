@@ -221,7 +221,7 @@ class ParadaRutaSemana(models.Model):
 
     class Meta:
         unique_together = (
-            "business_unit", "semana", "ruta_seq", "stop_id", "window_mode",
+            "business_unit", "semana", "grupo", "ruta_seq", "stop_id", "window_mode",
         )
         indexes = [
             models.Index(fields=["business_unit", "semana", "ruta_seq", "window_mode"])

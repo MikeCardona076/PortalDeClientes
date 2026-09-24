@@ -8,9 +8,18 @@ from .forms import PerfilForm
 from .models import PerfilUsuario
 
 
+def _perfil_de(user):
+    """Obtiene o crea el perfil; los superusuarios no quedan forzados."""
+    perfil_obj, _ = PerfilUsuario.objects.get_or_create(
+        user=user,
+        defaults={"debe_cambiar_password": not user.is_superuser},
+    )
+    return perfil_obj
+
+
 @login_required
 def perfil(request):
-    perfil_obj, _ = PerfilUsuario.objects.get_or_create(user=request.user)
+    perfil_obj = _perfil_de(request.user)
     if request.method == "POST":
         form = PerfilForm(request.POST, instance=perfil_obj)
         if form.is_valid():
@@ -32,12 +41,12 @@ class CambioPasswordView(PasswordChangeView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["perfil"], _ = PerfilUsuario.objects.get_or_create(user=self.request.user)
+        context["perfil"] = _perfil_de(self.request.user)
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
-        perfil_obj, _ = PerfilUsuario.objects.get_or_create(user=self.request.user)
+        perfil_obj = _perfil_de(self.request.user)
         if perfil_obj.debe_cambiar_password:
             perfil_obj.debe_cambiar_password = False
             perfil_obj.save(update_fields=["debe_cambiar_password"])

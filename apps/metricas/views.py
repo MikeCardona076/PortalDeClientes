@@ -301,6 +301,7 @@ def cliente(request):
             "serie": serie,
             "detalle": detalle,
             "correos_cliente": _correos_cliente(cliente_obj, bu),
+            "es_admin": es_admin,
             "sem_actual": current_week()[1],
         },
     )

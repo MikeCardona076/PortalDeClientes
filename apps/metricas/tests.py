@@ -107,6 +107,14 @@ class RetrasosViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_admin_ve_boton_correo(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(
+            reverse("metricas:cliente"),
+            {"cliente": "FLEX", "udn": "set_tj2", "anio": 2026, "semana": 34, "window": "14d"},
+        )
+        self.assertContains(resp, "ENVIAR CORREO CON DETALLE")
+
     def test_usuario_no_admin_no_envia(self):
         self.client.force_login(self.user)
         resp = self.client.post(

@@ -9,9 +9,11 @@ from apps.core.models import (
     BusinessUnit,
     Cliente,
     GrupoCliente,
+    PerfilUsuario,
     Semana,
     ServicioRutaSemana,
 )
+from apps.metricas.views import _correos_cliente
 
 
 class RetrasosViewTests(TestCase):
@@ -129,3 +131,33 @@ class RetrasosViewTests(TestCase):
             },
         )
         self.assertEqual(resp.status_code, 403)
+
+    def test_destinatarios_incluye_superuser(self):
+        User.objects.create_superuser("jefa", email="jefa@example.com", password="x")
+        self.assertIn("jefa@example.com", _correos_cliente(self.cliente, self.bu))
+
+    def test_destinatarios_excluye_remitente(self):
+        User.objects.create_superuser("jefa", email="jefa@example.com", password="x")
+        correos = _correos_cliente(
+            self.cliente, self.bu, excluir="jefa@example.com"
+        )
+        self.assertNotIn("jefa@example.com", correos)
+
+    def test_destinatarios_cliente_y_planta(self):
+        usuario = User.objects.create_user("cliente2", password="x")
+        perfil = PerfilUsuario.objects.create(
+            user=usuario, correos=["contacto@example.com"]
+        )
+        perfil.clientes.add(self.cliente)
+        perfil.business_units.add(self.bu)
+        self.assertIn("contacto@example.com", _correos_cliente(self.cliente, self.bu))
+
+    def test_destinatarios_sin_planta_no_aparece(self):
+        usuario = User.objects.create_user("cliente3", password="x")
+        perfil = PerfilUsuario.objects.create(
+            user=usuario, correos=["sinplanta@example.com"]
+        )
+        perfil.clientes.add(self.cliente)
+        self.assertNotIn(
+            "sinplanta@example.com", _correos_cliente(self.cliente, self.bu)
+        )

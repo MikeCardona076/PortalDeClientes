@@ -3,6 +3,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.core.validators import validate_email
@@ -300,26 +301,43 @@ def cliente(request):
             "cr_actual": cr_actual,
             "serie": serie,
             "detalle": detalle,
-            "correos_cliente": _correos_cliente(cliente_obj, bu),
+            "correos_cliente": _correos_cliente(
+                cliente_obj, bu, excluir=request.user.email
+            ),
             "es_admin": es_admin,
             "sem_actual": current_week()[1],
         },
     )
 
 
-def _correos_cliente(cliente_obj, bu):
-    """Correos de contacto de los perfiles ligados a cliente/planta."""
-    correos = []
+def _correos_cliente(cliente_obj, bu, excluir=None):
+    """Correos de superusuarios y de perfiles ligados a cliente/planta."""
+    correos = set()
+
+    for user in User.objects.filter(is_superuser=True, is_active=True).select_related(
+        "perfil"
+    ):
+        if user.email:
+            correos.add(user.email.strip().lower())
+        perfil = getattr(user, "perfil", None)
+        if perfil:
+            for correo in perfil.correos or []:
+                if correo:
+                    correos.add(correo.strip().lower())
+
     perfiles = PerfilUsuario.objects.filter(
         clientes=cliente_obj, business_units=bu
     ).select_related("user")
     for perfil in perfiles:
         for correo in perfil.correos or []:
             if correo:
-                correos.append(correo)
+                correos.add(correo.strip().lower())
         if perfil.user.email:
-            correos.append(perfil.user.email)
-    return sorted(set(correos))
+            correos.add(perfil.user.email.strip().lower())
+
+    if excluir:
+        correos.discard(excluir.strip().lower())
+    return sorted(correos)
 
 
 def _parse_correos(texto):
@@ -451,6 +469,9 @@ def enviar_detalle(request):
         window = "14d"
 
     correos = _parse_correos(request.POST.get("destinatarios", ""))
+    propio = (request.user.email or "").strip().lower()
+    if propio:
+        correos = [c for c in correos if c.lower() != propio]
     destino = (
         f"{reverse('metricas:cliente')}?cliente={quote(cliente_obj.nombre)}"
         f"&udn={quote(udn)}&anio={year}&semana={week}&window={window}"

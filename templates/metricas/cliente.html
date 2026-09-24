@@ -189,6 +189,12 @@
                 Un 0% no confirma que ya no haya usuarios: puede ser una parada que dejó de usarse,
                 que el ETA no la detectó o que cambió de ruta.
             </p>
+            <p class="text-xs text-slate-500 mb-3">
+                Colores:
+                <span class="inline-block px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700">Verde ≥97</span>
+                <span class="inline-block px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">Ámbar ≥80</span>
+                <span class="inline-block px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-700">Rojo &lt;80</span>
+            </p>
             <div class="mb-3 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm" id="paradas-toggle">
                 <button type="button" data-win="7d" class="parada-win px-3 py-1.5 rounded-md text-sm transition">7d</button>
                 <button type="button" data-win="14d" class="parada-win px-3 py-1.5 rounded-md text-sm transition">14d</button>
@@ -304,6 +310,13 @@ function abrirEnviar(){
 function cerrarEnviar(){
   document.getElementById('modal-enviar').classList.add('hidden');
 }
+function colorCalidad(v){
+  if (v === null || v === undefined || v === '') return 'bg-slate-100 text-slate-400';
+  const n = Number(v);
+  if (n >= 97) return 'bg-emerald-100 text-emerald-700';
+  if (n >= 80) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-700';
+}
 let PARADA_ACTUAL = {ruta: null, grupo: null, window: RETRASOS_DATA.window};
 function pintarToggleParadas(){
   document.querySelectorAll('.parada-win').forEach(b => {
@@ -333,16 +346,24 @@ function cargarParadas(){
     .then(data => {
       estado.textContent = data.total ? data.total + ' parada(s)' : 'Sin paradas para ese periodo.';
       (data.rows || []).forEach(row => {
-        const valores = [
-          row.stop_id, row.descripcion, row.servicios, row.detectadas,
-          row.calidad == null ? '—' : row.calidad + '%',
-          row.ultima_deteccion || '—', row.source
-        ];
         const tr = document.createElement('tr');
-        valores.forEach(v => {
+        [row.stop_id, row.descripcion, row.servicios, row.detectadas].forEach(v => {
           const td = document.createElement('td');
           td.className = 'px-2 py-1';
           td.textContent = (v === null || v === undefined || v === '') ? '—' : v;
+          tr.appendChild(td);
+        });
+        const tdCal = document.createElement('td');
+        tdCal.className = 'px-2 py-1 text-center';
+        const span = document.createElement('span');
+        span.className = 'inline-block text-xs px-2 py-1 rounded-full font-semibold ' + colorCalidad(row.calidad);
+        span.textContent = row.calidad == null ? '—' : row.calidad + '%';
+        tdCal.appendChild(span);
+        tr.appendChild(tdCal);
+        [row.ultima_deteccion || '—', row.source].forEach(v => {
+          const td = document.createElement('td');
+          td.className = 'px-2 py-1';
+          td.textContent = v;
           tr.appendChild(td);
         });
         body.appendChild(tr);

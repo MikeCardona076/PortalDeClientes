@@ -122,6 +122,74 @@ def route_stats(trips, criterio="done+etaTS", trip_filter="bothdone", solo_prime
     return stats
 
 
+def _f(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def route_stop_stats(trips, criterio="done+etaTS", trip_filter="bothdone"):
+    """Detalle por parada de una ruta.
+
+    Devuelve dict[(group, ruta_seq, stop_id)] = {
+        group, ruta_seq, stop_id, descripcion, lat, lng,
+        servicios, detectadas, calidad, ultima_deteccion
+    }
+    """
+    stats = {}
+    for t in trips or []:
+        if str(t.get("shift")) != "IN" or str(t.get("route_type")) != "N":
+            continue
+        if str(t.get("status")) not in ("5", "6", "7", "8"):
+            continue
+        if trip_filter == "bothdone" and not (
+            str(t.get("start_status")) == "done" and str(t.get("end_status")) == "done"
+        ):
+            continue
+        group = str(t.get("group") or "").strip()
+        ruta = route_seq_from_service_id(t.get("service_id"))
+        if not group or not ruta:
+            continue
+        stops = P(t.get("stops")) or []
+        stops_eta = P(t.get("stops_eta")) or []
+        if not isinstance(stops, list) or not isinstance(stops_eta, list):
+            continue
+        n = min(len(stops), len(stops_eta))
+        if n == 0:
+            continue
+        fecha = str(t.get("start_date") or "")[:10]
+        for i in range(n):
+            stop = stops[i] if isinstance(stops[i], dict) else {}
+            stop_id = str(stop.get("id") or stop.get("stop_id") or f"{ruta}-{i}")
+            key = (group, ruta, stop_id)
+            b = stats.setdefault(
+                key,
+                {
+                    "group": group,
+                    "ruta_seq": ruta,
+                    "stop_id": stop_id,
+                    "descripcion": str(stop.get("des") or "")[:200],
+                    "lat": _f(stop.get("lat")),
+                    "lng": _f(stop.get("lng")),
+                    "servicios": 0,
+                    "detectadas": 0,
+                    "ultima_deteccion": None,
+                },
+            )
+            b["servicios"] += 1
+            if _is_found(stops_eta[i], criterio):
+                b["detectadas"] += 1
+                if fecha and (b["ultima_deteccion"] is None or fecha > b["ultima_deteccion"]):
+                    b["ultima_deteccion"] = fecha
+
+    for b in stats.values():
+        b["calidad"] = (
+            round(b["detectadas"] / b["servicios"] * 100, 2) if b["servicios"] else None
+        )
+    return stats
+
+
 def aggregate_clients(stats):
     """Agrega route_stats por cliente base.
 

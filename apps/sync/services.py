@@ -1,18 +1,19 @@
 """Servicio de sincronización semanal (viajes, NS y CR 14d/7d)."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.db import transaction
 
 from apps.bustrax import client as api
 from apps.bustrax import cr, gps, ns
-from apps.bustrax.weeks import week_window
+from apps.bustrax.weeks import prev_week, week_window
 from apps.core.models import (
     BusinessUnit,
     Cliente,
     CRClienteSemana,
     CRRutaSemana,
     GrupoCliente,
+    ParadaRutaSemana,
     RefinamientoRuta,
     RutaIndicadoresSemana,
     Semana,
@@ -127,6 +128,39 @@ def _recompute_cliente_cr(semana_obj, window_mode):
         )
 
 
+def _guardar_paradas_gps(semana_obj, bu, grupo, ruta_seq, mode, paradas):
+    ParadaRutaSemana.objects.filter(
+        business_unit=bu,
+        semana=semana_obj,
+        grupo=grupo,
+        ruta_seq=ruta_seq,
+        window_mode=mode,
+    ).delete()
+    objs = []
+    for p in paradas:
+        if not p.get("stop_id"):
+            continue
+        objs.append(
+            ParadaRutaSemana(
+                business_unit=bu,
+                semana=semana_obj,
+                grupo=grupo,
+                ruta_seq=ruta_seq,
+                stop_id=str(p["stop_id"]),
+                descripcion=(p.get("descripcion") or "")[:200],
+                lat=p.get("lat"),
+                lng=p.get("lng"),
+                window_mode=mode,
+                servicios=p.get("servicios", 0),
+                detectadas=p.get("detectadas", 0),
+                calidad=p.get("calidad"),
+                ultima_deteccion=_fecha(p.get("ultima_deteccion")),
+                source="gps",
+            )
+        )
+    ParadaRutaSemana.objects.bulk_create(objs, batch_size=500)
+
+
 def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, start14, end):
     """Aplica GPS a las rutas marcadas en RefinamientoRuta (14d y 7d)."""
     refs = list(
@@ -136,6 +170,9 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
     )
     if not refs:
         return 0
+    bu_obj, _ = BusinessUnit.objects.get_or_create(
+        code=bu, defaults={"nombre": bu}
+    )
     try:
         mae_routes = api.fetch_routes(bu)
     except api.BustraxError as exc:
@@ -172,17 +209,64 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
                 tol_m=ref.tol_m, ventana_min=ref.ventana_min,
                 client=client, start=ini, end=end,
             )
-            if calidad is None:
-                continue
-            CRRutaSemana.objects.update_or_create(
-                grupo=ref.grupo,
-                semana=semana_obj,
-                ruta_seq=ref.ruta_seq,
-                window_mode=mode,
-                defaults={"calidad": calidad, "source": "gps"},
+            if calidad is not None:
+                CRRutaSemana.objects.update_or_create(
+                    grupo=ref.grupo,
+                    semana=semana_obj,
+                    ruta_seq=ref.ruta_seq,
+                    window_mode=mode,
+                    defaults={"calidad": calidad, "source": "gps"},
+                )
+            paradas = gps.refinar_ruta_paradas(
+                route, trips_src, year, week,
+                tol_m=ref.tol_m, ventana_min=ref.ventana_min,
+                client=client, start=ini, end=end,
             )
+            if paradas:
+                _guardar_paradas_gps(
+                    semana_obj, bu_obj, ref.grupo, ref.ruta_seq, mode, paradas
+                )
         hechos += 1
     return hechos
+
+
+def _agregar_indicadores(servicios):
+    """Agrupa servicios guardados por (grupo, ruta) para la tabla de rutas."""
+    acc = {}
+    for s in servicios:
+        cancelado = (s.estado_viaje == "Cancelado") or (s.status == "9")
+        es_servicio = (
+            s.tipo_viaje == "N"
+            and s.shift == "IN"
+            and not cancelado
+            and not ns._excluido(s.grupo.group)
+        )
+        key = (s.grupo_id, s.ruta_seq)
+        b = acc.setdefault(
+            key,
+            {
+                "business_unit_id": s.business_unit_id,
+                "grupo_id": s.grupo_id,
+                "ruta_seq": s.ruta_seq,
+                "descripcion": "",
+                "servicios": 0,
+                "entradas": 0,
+                "retrasos": 0,
+            },
+        )
+        b["servicios"] += 1 if es_servicio else 0
+        b["entradas"] += 1 if s.es_entrada else 0
+        b["retrasos"] += 1 if s.es_retraso else 0
+        if not b["descripcion"] and s.descripcion:
+            b["descripcion"] = s.descripcion
+
+    for b in acc.values():
+        b["ns"] = (
+            round((b["entradas"] - b["retrasos"]) / b["entradas"] * 100, 1)
+            if b["entradas"]
+            else None
+        )
+    return acc
 
 
 def _sync_servicios(semana_obj, bunit_code, rows):
@@ -241,25 +325,86 @@ def _sync_servicios(semana_obj, bunit_code, rows):
             },
         )
 
-    RutaIndicadoresSemana.objects.filter(
-        business_unit=bu, semana=semana_obj
-    ).delete()
-    for (group, ruta), data in ns.aggregate_servicios(servicios).items():
-        RutaIndicadoresSemana.objects.update_or_create(
-            business_unit=bu,
-            semana=semana_obj,
-            grupo=get_grupo(group),
-            ruta_seq=ruta,
-            defaults={
-                "descripcion": data["descripcion"],
-                "servicios": data["servicios"],
-                "entradas": data["entradas"],
-                "retrasos": data["retrasos"],
-                "ns": data["ns"],
-                "source": "api",
-            },
+    pyear, pweek = prev_week(semana_obj.year, semana_obj.week)
+    semana_prev = Semana.objects.filter(year=pyear, week=pweek).first()
+    for mode, semanas in (
+        ("7d", [semana_obj]),
+        ("14d", [semana_obj] + ([semana_prev] if semana_prev else [])),
+    ):
+        RutaIndicadoresSemana.objects.filter(
+            business_unit=bu, semana=semana_obj, window_mode=mode
+        ).delete()
+        servicios_db = (
+            ServicioRutaSemana.objects.filter(business_unit=bu, semana__in=semanas)
+            .select_related("grupo")
         )
+        for (grupo_id, ruta), data in _agregar_indicadores(servicios_db).items():
+            RutaIndicadoresSemana.objects.update_or_create(
+                business_unit=bu,
+                semana=semana_obj,
+                grupo_id=grupo_id,
+                ruta_seq=ruta,
+                window_mode=mode,
+                defaults={
+                    "descripcion": data["descripcion"],
+                    "servicios": data["servicios"],
+                    "entradas": data["entradas"],
+                    "retrasos": data["retrasos"],
+                    "ns": data["ns"],
+                    "source": "api",
+                },
+            )
     return len(servicios)
+
+
+def _fecha(value):
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _sync_paradas(semana_obj, bunit_code, trips14, trips7):
+    """Guarda el detalle por parada (API) para 7d y 14d."""
+    bu, _ = BusinessUnit.objects.get_or_create(
+        code=bunit_code, defaults={"nombre": bunit_code}
+    )
+    ParadaRutaSemana.objects.filter(business_unit=bu, semana=semana_obj).delete()
+
+    group_cache = {}
+
+    def get_grupo(group):
+        if group not in group_cache:
+            group_cache[group] = _grupo(group, bunit_code=bunit_code)
+        return group_cache[group]
+
+    total = 0
+    for mode, trips in (("7d", trips7), ("14d", trips14)):
+        objs = []
+        for (group, ruta, stop_id), data in cr.route_stop_stats(trips).items():
+            objs.append(
+                ParadaRutaSemana(
+                    business_unit=bu,
+                    semana=semana_obj,
+                    grupo=get_grupo(group),
+                    ruta_seq=ruta,
+                    stop_id=stop_id,
+                    descripcion=data["descripcion"],
+                    lat=data["lat"],
+                    lng=data["lng"],
+                    window_mode=mode,
+                    servicios=data["servicios"],
+                    detectadas=data["detectadas"],
+                    calidad=data["calidad"],
+                    ultima_deteccion=_fecha(data["ultima_deteccion"]),
+                    source="api",
+                )
+            )
+        ParadaRutaSemana.objects.bulk_create(objs, batch_size=500)
+        total += len(objs)
+    return total
 
 
 @transaction.atomic
@@ -289,6 +434,7 @@ def sync_semana(year, week, bunits=None, force=False):
 
         _store_cr(semana_obj, bu, stats14, "14d")
         _store_cr(semana_obj, bu, stats7, "7d")
+        _sync_paradas(semana_obj, bu, trips, trips7)
 
         # Viajes / NS (rid=5) de la semana exacta
         rows = []

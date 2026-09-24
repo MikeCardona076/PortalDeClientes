@@ -10,6 +10,7 @@ from .models import (
     GpsPunto,
     GrupoCliente,
     MaeRuta,
+    ParadaRutaSemana,
     PerfilUsuario,
     RefinamientoRuta,
     RutaIndicadoresSemana,
@@ -107,11 +108,21 @@ class ServicioRutaSemanaAdmin(admin.ModelAdmin):
 @admin.register(RutaIndicadoresSemana)
 class RutaIndicadoresSemanaAdmin(admin.ModelAdmin):
     list_display = (
-        "business_unit", "grupo", "semana", "ruta_seq",
+        "business_unit", "grupo", "semana", "ruta_seq", "window_mode",
         "servicios", "entradas", "retrasos", "ns",
     )
-    list_filter = ("business_unit", "semana__year", "source")
+    list_filter = ("business_unit", "semana__year", "window_mode", "source")
     search_fields = ("ruta_seq", "grupo__group")
+
+
+@admin.register(ParadaRutaSemana)
+class ParadaRutaSemanaAdmin(admin.ModelAdmin):
+    list_display = (
+        "business_unit", "grupo", "semana", "ruta_seq", "stop_id",
+        "window_mode", "servicios", "detectadas", "calidad", "source",
+    )
+    list_filter = ("business_unit", "semana__year", "window_mode", "source")
+    search_fields = ("ruta_seq", "stop_id", "descripcion", "grupo__group")
 
 
 class PerfilUsuarioInline(admin.StackedInline):

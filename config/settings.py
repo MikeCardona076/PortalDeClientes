@@ -156,7 +156,7 @@ TRAFFILOG_USERNAME = config("TRAFFILOG_USERNAME", default="")
 TRAFFILOG_PASSWORD = config("TRAFFILOG_PASSWORD", default="")
 TRAFFILOG_TZ = config("TRAFFILOG_TZ", default="America/Tijuana")
 
-CR_WINDOW_DEFAULT = config("CR_WINDOW_DEFAULT", default="14d")
+CR_WINDOW_DEFAULT = config("CR_WINDOW_DEFAULT", default="7d")
 
 # ------------------------------------------------------------------ Seguridad prod
 if IS_PROD:

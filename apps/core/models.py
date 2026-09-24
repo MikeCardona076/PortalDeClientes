@@ -177,6 +177,7 @@ class RutaIndicadoresSemana(models.Model):
     )
     ruta_seq = models.CharField(max_length=20)
     descripcion = models.CharField(max_length=200, blank=True)
+    window_mode = models.CharField(max_length=5, default="7d")
     servicios = models.IntegerField(default=0)
     entradas = models.IntegerField(default=0)
     retrasos = models.IntegerField(default=0)
@@ -185,10 +186,48 @@ class RutaIndicadoresSemana(models.Model):
     actualizado = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("business_unit", "semana", "grupo", "ruta_seq")
-        indexes = [models.Index(fields=["business_unit", "semana"])]
+        unique_together = (
+            "business_unit", "semana", "grupo", "ruta_seq", "window_mode",
+        )
+        indexes = [models.Index(fields=["business_unit", "semana", "window_mode"])]
         verbose_name = "Indicadores por ruta"
         verbose_name_plural = "Indicadores por ruta"
+
+
+class ParadaRutaSemana(models.Model):
+    """Detalle por parada de una ruta y semana."""
+
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.CASCADE, related_name="paradas_ruta"
+    )
+    grupo = models.ForeignKey(
+        GrupoCliente, on_delete=models.CASCADE, related_name="paradas_ruta"
+    )
+    semana = models.ForeignKey(
+        Semana, on_delete=models.CASCADE, related_name="paradas_ruta"
+    )
+    ruta_seq = models.CharField(max_length=20)
+    stop_id = models.CharField(max_length=40)
+    descripcion = models.CharField(max_length=200, blank=True)
+    lat = models.FloatField(null=True, blank=True)
+    lng = models.FloatField(null=True, blank=True)
+    window_mode = models.CharField(max_length=5, default="7d")
+    servicios = models.IntegerField(default=0)
+    detectadas = models.IntegerField(default=0)
+    calidad = models.FloatField(null=True, blank=True)
+    ultima_deteccion = models.DateField(null=True, blank=True)
+    source = models.CharField(max_length=10, default="api")
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = (
+            "business_unit", "semana", "ruta_seq", "stop_id", "window_mode",
+        )
+        indexes = [
+            models.Index(fields=["business_unit", "semana", "ruta_seq", "window_mode"])
+        ]
+        verbose_name = "Parada por ruta"
+        verbose_name_plural = "Paradas por ruta"
 
 
 class MaeRuta(models.Model):

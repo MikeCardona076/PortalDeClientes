@@ -9,11 +9,14 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.bustrax import ns
+from apps.bustrax.weeks import prev_week
 from apps.core.models import (
     RutaIndicadoresSemana,
+    Semana,
     ServicioRutaSemana,
     ViajeSemana,
 )
+from apps.sync.services import _agregar_indicadores
 
 
 class Command(BaseCommand):
@@ -81,30 +84,10 @@ class Command(BaseCommand):
         if bunits:
             servicios = servicios.filter(business_unit__code__in=bunits)
 
-        rutas = defaultdict(
-            lambda: {"servicios": 0, "entradas": 0, "retrasos": 0, "descripcion": ""}
-        )
-        viajes = defaultdict(
-            lambda: {"total": 0, "entradas": 0, "retrasos": 0}
-        )
+        viajes = defaultdict(lambda: {"total": 0, "entradas": 0, "retrasos": 0})
         for s in servicios.iterator():
             cancelado = (s.estado_viaje == "Cancelado") or (s.status == "9")
-            es_servicio = (
-                s.tipo_viaje == "N"
-                and s.shift == "IN"
-                and not cancelado
-                and not ns._excluido(s.grupo.group)
-            )
             completado = s.status in ("5", "6", "7", "8") and not cancelado
-
-            kr = (s.business_unit_id, s.semana_id, s.grupo_id, s.ruta_seq)
-            r = rutas[kr]
-            r["servicios"] += 1 if es_servicio else 0
-            r["entradas"] += 1 if s.es_entrada else 0
-            r["retrasos"] += 1 if s.es_retraso else 0
-            if not r["descripcion"] and s.descripcion:
-                r["descripcion"] = s.descripcion
-
             kv = (s.grupo.cliente_id, s.semana_id)
             v = viajes[kv]
             v["total"] += 1 if completado else 0
@@ -112,22 +95,34 @@ class Command(BaseCommand):
             v["retrasos"] += 1 if s.es_retraso else 0
 
         RutaIndicadoresSemana.objects.filter(semana__year=year).delete()
-        for (bu_id, semana_id, grupo_id, ruta), data in rutas.items():
-            entradas = data["entradas"]
-            RutaIndicadoresSemana.objects.create(
-                business_unit_id=bu_id,
-                semana_id=semana_id,
-                grupo_id=grupo_id,
-                ruta_seq=ruta,
-                descripcion=data["descripcion"],
-                servicios=data["servicios"],
-                entradas=entradas,
-                retrasos=data["retrasos"],
-                ns=round((entradas - data["retrasos"]) / entradas * 100, 1)
-                if entradas
-                else None,
-                source="api",
-            )
+        total_rutas = 0
+        for semana in Semana.objects.filter(year=year):
+            pyear, pweek = prev_week(semana.year, semana.week)
+            previa = Semana.objects.filter(year=pyear, week=pweek).first()
+            for mode, lista in (
+                ("7d", [semana]),
+                ("14d", [semana] + ([previa] if previa else [])),
+            ):
+                qs = ServicioRutaSemana.objects.filter(semana__in=lista).select_related(
+                    "grupo"
+                )
+                if bunits:
+                    qs = qs.filter(business_unit__code__in=bunits)
+                for (grupo_id, ruta), data in _agregar_indicadores(qs).items():
+                    RutaIndicadoresSemana.objects.create(
+                        business_unit_id=data["business_unit_id"],
+                        semana_id=semana.id,
+                        grupo_id=grupo_id,
+                        ruta_seq=ruta,
+                        window_mode=mode,
+                        descripcion=data["descripcion"],
+                        servicios=data["servicios"],
+                        entradas=data["entradas"],
+                        retrasos=data["retrasos"],
+                        ns=data["ns"],
+                        source="api",
+                    )
+                    total_rutas += 1
 
         # Reemplaza ViajeSemana del año.
         ViajeSemana.objects.filter(semana__year=year).delete()
@@ -143,4 +138,4 @@ class Command(BaseCommand):
                 if entradas
                 else None,
             )
-        return len(rutas), len(viajes)
+        return total_rutas, len(viajes)

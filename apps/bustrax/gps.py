@@ -230,6 +230,41 @@ def route_quality_services(services, day_points_fn, tol_m=150, window_min=None):
     return round(total_found / total_stops * 100, 2)
 
 
+def route_stop_quality_services(services, day_points_fn, tol_m=150, window_min=None):
+    """Detalle por parada desde GPS (lista de dicts)."""
+    acc = {}
+    for svc in services:
+        points = day_points_fn(svc["car"], svc["date"]) or []
+        found = evaluate_service(svc, points, tol_m, window_min)
+        for i, stop in enumerate(svc["stops"]):
+            stop_id = str(stop.get("id") or f"{i}")
+            b = acc.setdefault(
+                stop_id,
+                {
+                    "stop_id": stop_id,
+                    "descripcion": str(stop.get("des") or "")[:200],
+                    "lat": stop.get("lat"),
+                    "lng": stop.get("lng"),
+                    "servicios": 0,
+                    "detectadas": 0,
+                    "ultima_deteccion": None,
+                },
+            )
+            b["servicios"] += 1
+            if i < len(found) and found[i]:
+                b["detectadas"] += 1
+                fecha = svc.get("date")
+                if fecha and (
+                    b["ultima_deteccion"] is None or fecha > b["ultima_deteccion"]
+                ):
+                    b["ultima_deteccion"] = fecha
+    for b in acc.values():
+        b["calidad"] = (
+            round(b["detectadas"] / b["servicios"] * 100, 2) if b["servicios"] else None
+        )
+    return list(acc.values())
+
+
 def local_day_points(client, car, local_date, cache):
     """Puntos GPS de un día local (Traffilog UTC -> America/Tijuana)."""
     tz = ZoneInfo(settings.TRAFFILOG_TZ)
@@ -310,3 +345,21 @@ def refinar_ruta(route, trips, year, week, tol_m=200, ventana_min=None,
         window_min=ventana_min,
     )
     return quality, len(services)
+
+
+def refinar_ruta_paradas(
+    route, trips, year, week, tol_m=200, ventana_min=None,
+    client=None, start=None, end=None,
+):
+    """Detalle por parada reconstruido por GPS."""
+    client = client or TraffilogClient()
+    client.login()
+    services = services_from_trips(route, trips, year, week, start=start, end=end)
+    if not services:
+        return []
+    return route_stop_quality_services(
+        services,
+        lambda car, d: local_day_points_db(client, car, d),
+        tol_m=tol_m,
+        window_min=ventana_min,
+    )

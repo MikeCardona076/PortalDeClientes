@@ -9,6 +9,7 @@ from apps.core.models import (
     BusinessUnit,
     Cliente,
     GrupoCliente,
+    ParadaRutaSemana,
     PerfilUsuario,
     Semana,
     ServicioRutaSemana,
@@ -26,6 +27,9 @@ class RetrasosViewTests(TestCase):
         self.semana = Semana.objects.create(
             year=2026, week=34, inicio=date(2026, 8, 17), fin=date(2026, 8, 23)
         )
+        self.semana_prev = Semana.objects.create(
+            year=2026, week=33, inicio=date(2026, 8, 10), fin=date(2026, 8, 16)
+        )
         self.admin = User.objects.create_superuser("admin", password="x")
         self.user = User.objects.create_user("normal", password="x")
 
@@ -41,6 +45,32 @@ class RetrasosViewTests(TestCase):
             real_fin=time(11, 20),
             dif_fin=20,
             diagnostico_inicio="Retrasado",
+        )
+        ServicioRutaSemana.objects.create(
+            business_unit=self.bu,
+            grupo=self.grupo,
+            semana=self.semana_prev,
+            external_id="0",
+            ruta_seq="0010",
+            fecha_inicio=date(2026, 8, 10),
+            fecha_fin=date(2026, 8, 10),
+            prog_fin=time(11, 0),
+            real_fin=time(11, 30),
+            dif_fin=30,
+            diagnostico_inicio="Retrasado",
+        )
+        ParadaRutaSemana.objects.create(
+            business_unit=self.bu,
+            grupo=self.grupo,
+            semana=self.semana,
+            ruta_seq="0010",
+            stop_id="S1",
+            descripcion="PARADA 1",
+            window_mode="7d",
+            servicios=4,
+            detectadas=3,
+            calidad=75.0,
+            source="api",
         )
 
     def test_admin_ve_retrasos(self):
@@ -161,3 +191,40 @@ class RetrasosViewTests(TestCase):
         self.assertNotIn(
             "sinplanta@example.com", _correos_cliente(self.cliente, self.bu)
         )
+
+    def test_retrasos_respeta_window(self):
+        self.client.force_login(self.admin)
+        base = {
+            "cliente": "FLEX",
+            "udn": "set_tj2",
+            "anio": 2026,
+            "semana": 34,
+            "ruta": "0010",
+        }
+        r7 = self.client.get(
+            reverse("metricas:retrasos"), {**base, "window": "7d"}
+        ).json()
+        r14 = self.client.get(
+            reverse("metricas:retrasos"), {**base, "window": "14d"}
+        ).json()
+        self.assertEqual(r7["total"], 1)
+        self.assertEqual(r14["total"], 2)
+
+    def test_paradas_endpoint(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(
+            reverse("metricas:paradas"),
+            {
+                "cliente": "FLEX",
+                "udn": "set_tj2",
+                "anio": 2026,
+                "semana": 34,
+                "window": "7d",
+                "ruta": "0010",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["rows"][0]["stop_id"], "S1")
+        self.assertEqual(data["rows"][0]["calidad"], 75.0)

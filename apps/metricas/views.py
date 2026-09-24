@@ -13,12 +13,13 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from apps.bustrax import ns
-from apps.bustrax.weeks import current_week, weeks_of_year
+from apps.bustrax.weeks import current_week, prev_week, weeks_of_year
 from apps.core.models import (
     BusinessUnit,
     Cliente,
     CRClienteSemana,
     CRRutaSemana,
+    ParadaRutaSemana,
     PerfilUsuario,
     RutaIndicadoresSemana,
     Semana,
@@ -235,7 +236,10 @@ def cliente(request):
     if semana:
         indicadores = list(
             RutaIndicadoresSemana.objects.filter(
-                business_unit=bu, grupo__cliente=cliente_obj, semana=semana
+                business_unit=bu,
+                grupo__cliente=cliente_obj,
+                semana=semana,
+                window_mode=window,
             )
             .select_related("grupo")
             .order_by("ruta_seq")
@@ -375,7 +379,10 @@ def _detalle_email(cliente_obj, bu, year, week, window):
     if semana:
         indicadores = list(
             RutaIndicadoresSemana.objects.filter(
-                business_unit=bu, grupo__cliente=cliente_obj, semana=semana
+                business_unit=bu,
+                grupo__cliente=cliente_obj,
+                semana=semana,
+                window_mode=window,
             )
             .select_related("grupo")
             .order_by("ruta_seq")
@@ -422,10 +429,16 @@ def _detalle_email(cliente_obj, bu, year, week, window):
 
     retrasos = []
     if semana:
+        semanas = [semana]
+        if window == "14d":
+            pyear, pweek = prev_week(year, week)
+            previa = Semana.objects.filter(year=pyear, week=pweek).first()
+            if previa is not None:
+                semanas.append(previa)
         retrasos = list(
             ServicioRutaSemana.objects.filter(
                 business_unit=bu,
-                semana=semana,
+                semana__in=semanas,
                 grupo__cliente=cliente_obj,
                 dif_fin__gte=ns.RETRASO_MIN,
             )
@@ -528,12 +541,22 @@ def retrasos(request):
 
     year = _int_arg(request, "anio", current_week()[0])
     week = _int_arg(request, "semana", current_week()[1])
+    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
+    if window not in ("7d", "14d"):
+        window = "7d"
     semana = Semana.objects.filter(year=year, week=week).first()
     if semana is None:
         return JsonResponse({"total": 0, "page": 1, "page_size": 100, "rows": []})
 
+    semanas = [semana]
+    if window == "14d":
+        pyear, pweek = prev_week(year, week)
+        previa = Semana.objects.filter(year=pyear, week=pweek).first()
+        if previa is not None:
+            semanas.append(previa)
+
     qs = ServicioRutaSemana.objects.filter(
-        business_unit=bu, semana=semana, grupo__cliente=cliente_obj
+        business_unit=bu, semana__in=semanas, grupo__cliente=cliente_obj
     ).select_related("grupo__cliente")
 
     ruta = (request.GET.get("ruta") or "").strip()
@@ -584,3 +607,59 @@ def retrasos(request):
             }
         )
     return JsonResponse({"total": total, "page": page, "page_size": page_size, "rows": rows})
+
+
+@login_required
+def paradas(request):
+    """Detalle JSON por parada de una ruta."""
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
+    nombre = request.GET.get("cliente", "")
+    cliente_obj = get_object_or_404(Cliente, nombre=nombre)
+    if not es_admin and not clientes.filter(pk=cliente_obj.pk).exists():
+        return JsonResponse({"error": "No autorizado"}, status=403)
+
+    udn = _udn_arg(request, business_units, es_admin)
+    bu = _get_udn_bu(udn) if udn else None
+    if bu is None or (not es_admin and not business_units.filter(pk=bu.pk).exists()):
+        return JsonResponse({"error": "UDN no encontrada"}, status=404)
+
+    year = _int_arg(request, "anio", current_week()[0])
+    week = _int_arg(request, "semana", current_week()[1])
+    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
+    if window not in ("7d", "14d"):
+        window = "7d"
+    semana = Semana.objects.filter(year=year, week=week).first()
+    if semana is None:
+        return JsonResponse({"total": 0, "window": window, "rows": []})
+
+    qs = ParadaRutaSemana.objects.filter(
+        business_unit=bu,
+        semana=semana,
+        grupo__cliente=cliente_obj,
+        window_mode=window,
+    )
+    ruta = (request.GET.get("ruta") or "").strip()
+    grupo = (request.GET.get("grupo") or "").strip()
+    if ruta:
+        qs = qs.filter(ruta_seq=ruta)
+    if grupo.isdigit():
+        qs = qs.filter(grupo_id=int(grupo))
+
+    rows = []
+    for p in qs.order_by("calidad", "ruta_seq", "stop_id"):
+        rows.append(
+            {
+                "stop_id": p.stop_id,
+                "descripcion": p.descripcion,
+                "lat": p.lat,
+                "lng": p.lng,
+                "servicios": p.servicios,
+                "detectadas": p.detectadas,
+                "calidad": p.calidad,
+                "ultima_deteccion": p.ultima_deteccion.isoformat()
+                if p.ultima_deteccion
+                else "",
+                "source": p.source,
+            }
+        )
+    return JsonResponse({"total": len(rows), "window": window, "rows": rows})

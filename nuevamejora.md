@@ -89,6 +89,7 @@ El detalle debe mostrar las siguientes columnas, en este orden:
 14. `Real fin`
 15. `Dif fin`
 16. `Diagnóstico Inicio`
+17. `Diagnóstico Fin`
 
 El detalle se filtrará obligatoriamente por:
 
@@ -120,7 +121,8 @@ La fuente principal actual es el reporte `rid=5`, complementado con los datos de
 | Dif fin | `Real fin - Prog fin` | Diferencia de llegada en minutos |
 | Operador | `operador` | Nombre o identificador del operador |
 | Nómina | `no. de nomina` | Número o identificador de nómina |
-| Diagnóstico Inicio | Calculado | `Retrasado` si `Δ_ini > 4 min`; si no, `A tiempo` |
+| Diagnóstico Inicio | Calculado | `Retrasado` si `Δ_ini >= 4 min`; si no, `A tiempo` |
+| Diagnóstico Fin | Calculado | `Retrasado` si `Δ_fin >= 4 min`; si no, `A tiempo` |
 
 En la API de `rid=5`, `time` es el horario programado y `eta` el horario real. El código actual `end_eta - end_time` ya calcula `Real - Prog`: positivo significa tardío y coincide con el `Diagnostico Viaje` de la API, por lo que el KPI de retrasos se mantiene como hoy.
 
@@ -183,9 +185,10 @@ Decisiones resueltas:
 - Calendario: ISO lunes–domingo; `Sem Via` de Bustrax sólo se usa como referencia informativa.
 - `time` = programado y `eta` = real. `Δ = Real − Prog`; positivo significa tardío.
 - Operador = `operador`; Nómina = `no. de nomina`.
-- `Diagnóstico Inicio` se calcula con `Δ_ini`: `Retrasado` si supera 4 minutos.
+- `Diagnóstico Inicio` se calcula con `Δ_ini`: `Retrasado` desde 4 minutos.
+- `Diagnóstico Fin` se calcula con `Δ_fin`: `Retrasado` desde 4 minutos.
 - El detalle de retrasos se abre en un modal dentro de la página.
-- El KPI de retrasos se mantiene como hoy (`record_quality == 1`); el modal muestra todos los `Δ > 4 min`, incluyendo los que no tienen `record_quality`.
+- El KPI de retrasos se mantiene como hoy (`record_quality == 1`); el modal muestra todos los `Δ >= 4 min`, incluyendo los que no tienen `record_quality`.
 - La UDN activa es `set_tj2`.
 
 Pendientes para después:

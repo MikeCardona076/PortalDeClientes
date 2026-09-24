@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
 
 from .models import (
     BusinessUnit,
@@ -20,9 +22,9 @@ from .models import (
 
 @admin.register(PerfilUsuario)
 class PerfilUsuarioAdmin(admin.ModelAdmin):
-    list_display = ("user", "es_admin")
+    list_display = ("user", "es_admin", "debe_cambiar_password")
     search_fields = ("user__username", "user__email")
-    filter_horizontal = ("clientes",)
+    filter_horizontal = ("clientes", "business_units")
 
 
 @admin.register(Cliente)
@@ -110,3 +112,18 @@ class RutaIndicadoresSemanaAdmin(admin.ModelAdmin):
     )
     list_filter = ("business_unit", "semana__year", "source")
     search_fields = ("ruta_seq", "grupo__group")
+
+
+class PerfilUsuarioInline(admin.StackedInline):
+    model = PerfilUsuario
+    can_delete = False
+    filter_horizontal = ("clientes", "business_units")
+    fk_name = "user"
+
+
+class UsuarioAdmin(UserAdmin):
+    inlines = (PerfilUsuarioInline,)
+
+
+admin.site.unregister(User)
+admin.site.register(User, UsuarioAdmin)

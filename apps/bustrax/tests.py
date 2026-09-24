@@ -58,3 +58,38 @@ class NsTests(SimpleTestCase):
         self.assertEqual(s["diagnostico_inicio"], "Retrasado")
         self.assertTrue(s["es_entrada"])
         self.assertTrue(s["es_retraso"])
+
+    def _row(self, **overrides):
+        row = {
+            "id": "1",
+            "id_servicio": "E-X-T1-N0010",
+            "ID Ruta": "0010",
+            "group": "SCN-SCHNEIDER",
+            "des": "RUTA X",
+            "start_date": "2026-08-17",
+            "end_date": "2026-08-17",
+            "start_time": "10:00:00",
+            "start_eta": "10:04:00",
+            "end_time": "11:00:00",
+            "end_eta": "11:04:00",
+            "Tipo de Viaje": "N",
+            "shift": "IN",
+            "status": "6",
+            "record_quality": "1",
+            "Estado de Viaje": "Finalizado ETA",
+            "car": "123",
+        }
+        row.update(overrides)
+        return row
+
+    def test_4_minutos_es_retraso(self):
+        s = ns.normalize_service(self._row(start_eta="10:04:00", end_eta="11:04:00"))
+        self.assertEqual(s["dif_ini"], 4)
+        self.assertEqual(s["dif_fin"], 4)
+        self.assertEqual(s["diagnostico_inicio"], "Retrasado")
+        self.assertTrue(s["es_retraso"])
+
+    def test_3_minutos_no_es_retraso(self):
+        s = ns.normalize_service(self._row(start_eta="10:03:00", end_eta="11:03:00"))
+        self.assertEqual(s["diagnostico_inicio"], "A tiempo")
+        self.assertFalse(s["es_retraso"])

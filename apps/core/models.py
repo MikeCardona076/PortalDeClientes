@@ -265,6 +265,11 @@ class PerfilUsuario(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="perfil")
     clientes = models.ManyToManyField(Cliente, blank=True, related_name="usuarios")
+    business_units = models.ManyToManyField(
+        BusinessUnit, blank=True, related_name="usuarios"
+    )
+    correos = models.JSONField(default=list, blank=True)
+    debe_cambiar_password = models.BooleanField(default=True)
     es_admin = models.BooleanField(
         default=False, help_text="Acceso total a todos los clientes y plazas."
     )

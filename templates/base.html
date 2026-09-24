@@ -24,6 +24,7 @@
         <div class="flex items-center gap-3 text-sm">
             {% if user.is_authenticated %}
                 <span class="text-slate-600">{{ user.get_full_name|default:user.username }}{% if scope_es_admin %} · admin{% endif %}</span>
+                <a href="{% url 'core:perfil' %}" class="text-slate-600 hover:bg-slate-100 rounded-lg px-3 py-1.5 transition">Mi perfil</a>
                 {% if user.is_staff %}<a href="/admin/" class="text-slate-600 hover:bg-slate-100 rounded-lg px-3 py-1.5 transition">Admin</a>{% endif %}
                 <form method="post" action="{% url 'logout' %}" class="inline">
                     {% csrf_token %}

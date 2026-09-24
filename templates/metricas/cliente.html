@@ -117,7 +117,7 @@
                         <th class="px-2 py-1">Veh</th><th class="px-2 py-1">Operador</th><th class="px-2 py-1">Nómina</th>
                         <th class="px-2 py-1">Prog ini</th><th class="px-2 py-1">Real ini</th><th class="px-2 py-1">Dif ini</th>
                         <th class="px-2 py-1">Prog fin</th><th class="px-2 py-1">Real fin</th><th class="px-2 py-1">Dif fin</th>
-                        <th class="px-2 py-1">Diagnóstico Inicio</th>
+                        <th class="px-2 py-1">Diagnóstico Inicio</th><th class="px-2 py-1">Diagnóstico Fin</th>
                     </tr>
                 </thead>
                 <tbody id="retrasos-body" class="divide-y divide-slate-100"></tbody>
@@ -192,7 +192,7 @@ function abrirRetrasos(ruta, grupo){
           row.id, row.fecha_inicio, row.fecha_fin, row.ruta, row.cliente, row.udn,
           row.veh, row.operador, row.nomina, row.prog_ini, row.real_ini,
           fmtDif(row.dif_ini), row.prog_fin, row.real_fin, fmtDif(row.dif_fin),
-          row.diagnostico_inicio || '—'
+          row.diagnostico_inicio || '—', row.diagnostico_fin || '—'
         ];
         const tr = document.createElement('tr');
         valores.forEach(v => {

@@ -15,7 +15,7 @@ from apps.core.models import (
     ServicioRutaSemana,
     ViajeSemana,
 )
-from apps.core.scoping import get_clientes_for_user
+from apps.core.scoping import get_scope_for_user
 
 
 def _int_arg(request, name, default):
@@ -25,11 +25,22 @@ def _int_arg(request, name, default):
         return default
 
 
-def _udn_arg(request):
-    """Código de UDN solicitado o la primera activa (set_tj2 por defecto)."""
+def _udn_arg(request, business_units=None, es_admin=False):
+    """Código de UDN solicitado dentro del scope del usuario."""
     code = (request.GET.get("udn") or "").strip()
-    if code:
-        return code
+    if es_admin:
+        if code:
+            return code
+        bu = BusinessUnit.objects.filter(activa=True).order_by("code").first()
+        return bu.code if bu else "set_tj2"
+    if business_units is not None:
+        if code and business_units.filter(code=code).exists():
+            return code
+        bu = (
+            business_units.filter(activa=True).order_by("code").first()
+            or business_units.order_by("code").first()
+        )
+        return bu.code if bu else None
     bu = BusinessUnit.objects.filter(activa=True).order_by("code").first()
     return bu.code if bu else "set_tj2"
 
@@ -40,11 +51,13 @@ def _get_udn_bu(code):
 
 @login_required
 def index(request):
-    clientes, es_admin = get_clientes_for_user(request.user)
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
     if not es_admin:
-        clientes = clientes.filter(activo=True)
+        clientes = clientes.filter(
+            activo=True, grupos__business_unit__in=business_units
+        ).distinct()
 
-    udn = _udn_arg(request)
+    udn = _udn_arg(request, business_units, es_admin) or "set_tj2"
     anio_actual = current_week()[0]
     db_years = set(Semana.objects.values_list("year", flat=True).distinct())
     years = sorted(db_years | {anio_actual}, reverse=True)
@@ -148,15 +161,15 @@ def index(request):
 
 @login_required
 def cliente(request):
-    clientes, es_admin = get_clientes_for_user(request.user)
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
     nombre = request.GET.get("cliente", "")
     cliente_obj = get_object_or_404(Cliente, nombre=nombre)
     if not es_admin and not clientes.filter(pk=cliente_obj.pk).exists():
         return redirect("metricas:index")
 
-    udn = _udn_arg(request)
-    bu = _get_udn_bu(udn)
-    if bu is None:
+    udn = _udn_arg(request, business_units, es_admin)
+    bu = _get_udn_bu(udn) if udn else None
+    if bu is None or (not es_admin and not business_units.filter(pk=bu.pk).exists()):
         return redirect("metricas:index")
 
     year = _int_arg(request, "anio", current_week()[0])
@@ -279,15 +292,15 @@ def cliente(request):
 @login_required
 def retrasos(request):
     """Detalle JSON de servicios retrasados para el modal."""
-    clientes, es_admin = get_clientes_for_user(request.user)
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
     nombre = request.GET.get("cliente", "")
     cliente_obj = get_object_or_404(Cliente, nombre=nombre)
     if not es_admin and not clientes.filter(pk=cliente_obj.pk).exists():
         return JsonResponse({"error": "No autorizado"}, status=403)
 
-    udn = _udn_arg(request)
-    bu = _get_udn_bu(udn)
-    if bu is None:
+    udn = _udn_arg(request, business_units, es_admin)
+    bu = _get_udn_bu(udn) if udn else None
+    if bu is None or (not es_admin and not business_units.filter(pk=bu.pk).exists()):
         return JsonResponse({"error": "UDN no encontrada"}, status=404)
 
     year = _int_arg(request, "anio", current_week()[0])
@@ -307,8 +320,8 @@ def retrasos(request):
     if grupo.isdigit():
         qs = qs.filter(grupo_id=int(grupo))
 
-    # El modal muestra todos los Δ>4 min, aunque no tengan record_quality.
-    qs = qs.filter(dif_fin__gt=ns.RETRASO_MIN).order_by("fecha_inicio", "real_fin", "id")
+    # El modal muestra todos los Δ>=4 min, aunque no tengan record_quality.
+    qs = qs.filter(dif_fin__gte=ns.RETRASO_MIN).order_by("fecha_inicio", "real_fin", "id")
     total = qs.count()
     page = max(1, _int_arg(request, "page", 1))
     page_size = 100
@@ -316,6 +329,13 @@ def retrasos(request):
 
     def hora(value):
         return value.strftime("%H:%M:%S") if value else ""
+
+    def diag_fin(valor):
+        if valor is None:
+            return ""
+        if ns.RETRASO_MIN <= valor < ns.RETRASO_MAX:
+            return "Retrasado"
+        return "A tiempo"
 
     rows = []
     for s in filas:
@@ -337,6 +357,7 @@ def retrasos(request):
                 "real_fin": hora(s.real_fin),
                 "dif_fin": s.dif_fin,
                 "diagnostico_inicio": s.diagnostico_inicio,
+                "diagnostico_fin": diag_fin(s.dif_fin),
             }
         )
     return JsonResponse({"total": total, "page": page, "page_size": page_size, "rows": rows})

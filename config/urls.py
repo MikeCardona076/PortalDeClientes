@@ -38,5 +38,6 @@ urlpatterns = [
         ),
         name="password_reset_complete",
     ),
+    path("perfil/", include("apps.core.urls")),
     path("", include("apps.metricas.urls")),
 ]

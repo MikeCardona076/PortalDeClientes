@@ -107,7 +107,7 @@ def normalize_service(row):
     dif_fin = minutes_diff(row.get("end_eta"), row.get("end_time"))
     if dif_ini is None:
         diag_ini = ""
-    elif RETRASO_MIN < dif_ini < RETRASO_MAX:
+    elif RETRASO_MIN <= dif_ini < RETRASO_MAX:
         diag_ini = "Retrasado"
     else:
         diag_ini = "A tiempo"
@@ -212,7 +212,7 @@ def trip_flags(row):
     val_ret = 0
     if entrada and retraso_valido:
         d = dif_llegada(row)
-        val_ret = 1 if RETRASO_MIN < d < RETRASO_MAX else 0
+        val_ret = 1 if RETRASO_MIN <= d < RETRASO_MAX else 0
     total = 1 if (completado and not cancelado) else 0
     return total, entrada, val_ret
 

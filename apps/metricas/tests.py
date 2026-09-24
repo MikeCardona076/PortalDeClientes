@@ -1,7 +1,8 @@
 from datetime import date, time
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.core.models import (
@@ -64,5 +65,59 @@ class RetrasosViewTests(TestCase):
         resp = self.client.get(
             reverse("metricas:retrasos"),
             {"cliente": "FLEX", "udn": "set_tj2", "anio": 2026, "semana": 34},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_admin_envia_correo_detalle(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("metricas:enviar_detalle"),
+            {
+                "cliente": "FLEX",
+                "udn": "set_tj2",
+                "anio": 2026,
+                "semana": 34,
+                "window": "14d",
+                "destinatarios": "a@example.com, b@example.com",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("a@example.com", mail.outbox[0].to)
+        self.assertIn("b@example.com", mail.outbox[0].to)
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertIn("FLEX", html)
+        self.assertIn("Detalle de retrasos", html)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_correo_invalido_no_envia(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("metricas:enviar_detalle"),
+            {
+                "cliente": "FLEX",
+                "udn": "set_tj2",
+                "anio": 2026,
+                "semana": 34,
+                "window": "14d",
+                "destinatarios": "no-es-correo",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_usuario_no_admin_no_envia(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            reverse("metricas:enviar_detalle"),
+            {
+                "cliente": "FLEX",
+                "udn": "set_tj2",
+                "anio": 2026,
+                "semana": 34,
+                "window": "14d",
+                "destinatarios": "a@example.com",
+            },
         )
         self.assertEqual(resp.status_code, 403)

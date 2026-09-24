@@ -1,7 +1,15 @@
+from urllib.parse import quote
+
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.core.exceptions import ValidationError
+from django.core.mail import EmailMultiAlternatives
+from django.core.validators import validate_email
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
+from django.urls import reverse
 
 from apps.bustrax import ns
 from apps.bustrax.weeks import current_week, weeks_of_year
@@ -10,6 +18,7 @@ from apps.core.models import (
     Cliente,
     CRClienteSemana,
     CRRutaSemana,
+    PerfilUsuario,
     RutaIndicadoresSemana,
     Semana,
     ServicioRutaSemana,
@@ -21,6 +30,13 @@ from apps.core.scoping import get_scope_for_user
 def _int_arg(request, name, default):
     try:
         return int(request.GET.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_post(request, name, default):
+    try:
+        return int(request.POST.get(name, default))
     except (TypeError, ValueError):
         return default
 
@@ -284,9 +300,194 @@ def cliente(request):
             "cr_actual": cr_actual,
             "serie": serie,
             "detalle": detalle,
+            "correos_cliente": _correos_cliente(cliente_obj, bu),
             "sem_actual": current_week()[1],
         },
     )
+
+
+def _correos_cliente(cliente_obj, bu):
+    """Correos de contacto de los perfiles ligados a cliente/planta."""
+    correos = []
+    perfiles = PerfilUsuario.objects.filter(
+        clientes=cliente_obj, business_units=bu
+    ).select_related("user")
+    for perfil in perfiles:
+        for correo in perfil.correos or []:
+            if correo:
+                correos.append(correo)
+        if perfil.user.email:
+            correos.append(perfil.user.email)
+    return sorted(set(correos))
+
+
+def _parse_correos(texto):
+    correos = []
+    for parte in (texto or "").replace(";", ",").replace("\n", ",").split(","):
+        correo = parte.strip()
+        if not correo:
+            continue
+        try:
+            validate_email(correo)
+        except ValidationError:
+            continue
+        if correo not in correos:
+            correos.append(correo)
+    return correos
+
+
+def _detalle_email(cliente_obj, bu, year, week, window):
+    """Datos del correo: KPIs, tabla por ruta y retrasos de la semana."""
+    semana = Semana.objects.filter(year=year, week=week).first()
+    kpi_viajes = kpi_ns = kpi_entradas = kpi_ret = None
+    cr_actual = None
+    if semana:
+        v = ViajeSemana.objects.filter(cliente=cliente_obj, semana=semana).first()
+        if v:
+            kpi_viajes, kpi_ns = v.total, v.ns
+            kpi_entradas, kpi_ret = v.entradas, v.retrasos
+        c = CRClienteSemana.objects.filter(
+            cliente=cliente_obj, semana=semana, window_mode=window
+        ).first()
+        if c:
+            cr_actual = c.calidad
+
+    detalle = []
+    if semana:
+        indicadores = list(
+            RutaIndicadoresSemana.objects.filter(
+                business_unit=bu, grupo__cliente=cliente_obj, semana=semana
+            )
+            .select_related("grupo")
+            .order_by("ruta_seq")
+        )
+        cr_map = {
+            (r.grupo_id, r.ruta_seq): r
+            for r in CRRutaSemana.objects.filter(
+                grupo__cliente=cliente_obj,
+                semana=semana,
+                window_mode=window,
+                grupo__business_unit=bu,
+            )
+        }
+        if indicadores:
+            for ind in indicadores:
+                c = cr_map.get((ind.grupo_id, ind.ruta_seq))
+                detalle.append(
+                    {
+                        "ruta_seq": ind.ruta_seq,
+                        "descripcion": ind.descripcion or (c.descripcion if c else ""),
+                        "servicios": ind.servicios,
+                        "retrasos": ind.retrasos,
+                        "ns": ind.ns,
+                        "calidad": c.calidad if c else None,
+                    }
+                )
+        else:
+            for r in CRRutaSemana.objects.filter(
+                grupo__cliente=cliente_obj,
+                semana=semana,
+                window_mode=window,
+                grupo__business_unit=bu,
+            ).order_by("-calidad"):
+                detalle.append(
+                    {
+                        "ruta_seq": r.ruta_seq,
+                        "descripcion": r.descripcion,
+                        "servicios": r.servicios,
+                        "retrasos": 0,
+                        "ns": None,
+                        "calidad": r.calidad,
+                    }
+                )
+
+    retrasos = []
+    if semana:
+        retrasos = list(
+            ServicioRutaSemana.objects.filter(
+                business_unit=bu,
+                semana=semana,
+                grupo__cliente=cliente_obj,
+                dif_fin__gte=ns.RETRASO_MIN,
+            )
+            .select_related("grupo")
+            .order_by("fecha_inicio", "ruta_seq", "real_fin")
+        )
+
+    return {
+        "semana": semana,
+        "kpi_viajes": kpi_viajes,
+        "kpi_ns": kpi_ns,
+        "kpi_entradas": kpi_entradas,
+        "kpi_ret": kpi_ret,
+        "cr_actual": cr_actual,
+        "detalle": detalle,
+        "retrasos": retrasos,
+    }
+
+
+@login_required
+def enviar_detalle(request):
+    """Envía por correo el detalle del cliente (solo admin)."""
+    if request.method != "POST":
+        return redirect("metricas:index")
+
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
+    if not es_admin:
+        return HttpResponseForbidden("Solo administradores.")
+
+    cliente_obj = get_object_or_404(Cliente, nombre=request.POST.get("cliente", ""))
+    udn = (request.POST.get("udn") or "").strip()
+    bu = _get_udn_bu(udn)
+    if bu is None:
+        messages.error(request, "UDN no encontrada.")
+        return redirect("metricas:index")
+
+    year = _int_post(request, "anio", current_week()[0])
+    week = _int_post(request, "semana", current_week()[1])
+    window = request.POST.get("window", settings.CR_WINDOW_DEFAULT)
+    if window not in ("14d", "7d"):
+        window = "14d"
+
+    correos = _parse_correos(request.POST.get("destinatarios", ""))
+    destino = (
+        f"{reverse('metricas:cliente')}?cliente={quote(cliente_obj.nombre)}"
+        f"&udn={quote(udn)}&anio={year}&semana={week}&window={window}"
+    )
+    if not correos:
+        messages.error(request, "Agrega al menos un correo válido.")
+        return redirect(destino)
+
+    datos = _detalle_email(cliente_obj, bu, year, week, window)
+    html = render_to_string(
+        "emails/detalle_cliente.html",
+        {
+            "cliente": cliente_obj,
+            "bu": bu,
+            "udn": udn,
+            "year": year,
+            "week": week,
+            "window": window,
+            **datos,
+        },
+    )
+    asunto = f"Detalle {cliente_obj.nombre} · Semana {week} {year} · {udn}"
+    texto = (
+        f"Detalle {cliente_obj.nombre} · Semana {week} {year} · {udn}\n"
+        f"Total viajes: {datos['kpi_viajes']}\n"
+        f"NS: {datos['kpi_ns']}\n"
+        f"CR {window}: {datos['cr_actual']}\n"
+    )
+    msg = EmailMultiAlternatives(
+        asunto, texto, settings.DEFAULT_FROM_EMAIL, correos
+    )
+    msg.attach_alternative(html, "text/html")
+    try:
+        msg.send(fail_silently=False)
+        messages.success(request, f"Correo enviado a {', '.join(correos)}.")
+    except Exception as exc:
+        messages.error(request, f"No se pudo enviar el correo: {exc}")
+    return redirect(destino)
 
 
 @login_required

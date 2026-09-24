@@ -10,6 +10,12 @@
     <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">Semana {{ week }}, {{ year }}</span>
     <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">UDN {{ bu.nombre }} ({{ udn }})</span>
     <span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-950 text-white">CR {{ window }}</span>
+    {% if es_admin %}
+    <button type="button" onclick="abrirEnviar()"
+            class="ml-auto px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition shadow-sm">
+        ENVIAR CORREO CON DETALLE
+    </button>
+    {% endif %}
 </div>
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -125,6 +131,42 @@
         </div>
     </div>
 </div>
+
+{% if es_admin %}
+<div id="modal-enviar" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/40" onclick="cerrarEnviar()"></div>
+    <div class="relative mx-auto mt-16 w-[96%] max-w-xl rounded-2xl bg-white shadow-xl">
+        <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <h3 class="font-bold text-blue-950">Enviar detalle por correo</h3>
+            <button type="button" class="text-slate-500 hover:text-slate-800" onclick="cerrarEnviar()">Cerrar</button>
+        </div>
+        <form method="post" action="{% url 'metricas:enviar_detalle' %}" class="p-4 space-y-3">
+            {% csrf_token %}
+            <input type="hidden" name="cliente" value="{{ cliente.nombre }}">
+            <input type="hidden" name="udn" value="{{ udn }}">
+            <input type="hidden" name="anio" value="{{ year }}">
+            <input type="hidden" name="semana" value="{{ week }}">
+            <input type="hidden" name="window" value="{{ window }}">
+            <p class="text-sm text-slate-600">
+                {{ cliente.nombre }} · Semana {{ week }}, {{ year }} · UDN {{ udn }}
+            </p>
+            <div>
+                <label for="destinatarios" class="block text-sm font-medium text-slate-700 mb-1">Destinatarios</label>
+                <textarea id="destinatarios" name="destinatarios" rows="3"
+                          class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-950"
+                          placeholder="correo1@ejemplo.com, correo2@ejemplo.com">{% for c in correos_cliente %}{{ c }}{% if not forloop.last %}, {% endif %}{% endfor %}</textarea>
+                <p class="text-xs text-slate-500 mt-1">Separa los correos con comas.</p>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="cerrarEnviar()"
+                        class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-100 transition">Cancelar</button>
+                <button type="submit"
+                        class="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition">ENVIAR CORREO CON DETALLE</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -209,8 +251,17 @@ function abrirRetrasos(ruta, grupo){
 function cerrarRetrasos(){
   document.getElementById('modal-retrasos').classList.add('hidden');
 }
+function abrirEnviar(){
+  document.getElementById('modal-enviar').classList.remove('hidden');
+}
+function cerrarEnviar(){
+  document.getElementById('modal-enviar').classList.add('hidden');
+}
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') cerrarRetrasos();
+  if (e.key === 'Escape') {
+    cerrarRetrasos();
+    cerrarEnviar();
+  }
 });
 </script>
 {% endblock %}

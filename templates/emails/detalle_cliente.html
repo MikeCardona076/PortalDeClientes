@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Detalle {{ cliente.nombre }} · Semana {{ week }} {{ year }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#1e293b;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="900" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;">
+    <tr>
+        <td style="background:#172554;color:#ffffff;padding:20px 24px;">
+            <div style="font-size:22px;font-weight:bold;">Detalle de {{ cliente.nombre }}</div>
+            <div style="font-size:13px;color:#cbd5e1;margin-top:4px;">
+                Semana {{ week }}, {{ year }} · UDN {{ udn }} · CR {{ window }}
+            </div>
+        </td>
+    </tr>
+    <tr><td style="padding:20px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+                <td width="33%" style="padding:8px;">
+                    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+                        <div style="font-size:11px;text-transform:uppercase;color:#64748b;">Total Viajes</div>
+                        <div style="font-size:22px;font-weight:bold;color:#172554;">{{ kpi_viajes|default_if_none:"—" }}</div>
+                    </div>
+                </td>
+                <td width="33%" style="padding:8px;">
+                    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+                        <div style="font-size:11px;text-transform:uppercase;color:#64748b;">Nivel de Servicio</div>
+                        <div style="font-size:22px;font-weight:bold;color:#059669;">{% if kpi_ns is not None %}{{ kpi_ns }}%{% else %}—{% endif %}</div>
+                        <div style="font-size:11px;color:#64748b;">entradas {{ kpi_entradas|default_if_none:"—" }} · retrasos {{ kpi_ret|default_if_none:"—" }}</div>
+                    </div>
+                </td>
+                <td width="33%" style="padding:8px;">
+                    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;">
+                        <div style="font-size:11px;text-transform:uppercase;color:#64748b;">Calidad de Ruta {{ window }}</div>
+                        <div style="font-size:22px;font-weight:bold;color:#172554;">{% if cr_actual is not None %}{{ cr_actual }}%{% else %}—{% endif %}</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <h3 style="font-size:15px;color:#172554;margin:20px 0 8px;">Detalle por ruta y servicio (IN/N)</h3>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;">
+            <thead>
+                <tr style="background:#f8fafc;color:#64748b;text-align:left;">
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;">Ruta</th>
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;">Descripción</th>
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">Servicios</th>
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">Retrasos</th>
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">NS</th>
+                    <th style="padding:6px;border-bottom:1px solid #e2e8f0;text-align:center;">Calidad</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for d in detalle %}
+                <tr>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-weight:bold;color:#172554;">{{ d.ruta_seq }}</td>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;color:#475569;">{{ d.descripcion }}</td>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ d.servicios }}</td>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ d.retrasos }}</td>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;">{% if d.ns is not None %}{{ d.ns }}%{% else %}—{% endif %}</td>
+                    <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;">{% if d.calidad is not None %}{{ d.calidad }}%{% else %}—{% endif %}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" style="padding:12px;text-align:center;color:#64748b;">Sin datos.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+        <h3 style="font-size:15px;color:#172554;margin:24px 0 8px;">Detalle de retrasos</h3>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
+            <thead>
+                <tr style="background:#f8fafc;color:#64748b;text-align:left;">
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">id</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Fecha inicio</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Fecha fin</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Ruta</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">UDN</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Veh</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Operador</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Nómina</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Prog ini</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Real ini</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Dif ini</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Prog fin</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Real fin</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;text-align:center;">Dif fin</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Diagnóstico Inicio</th>
+                    <th style="padding:5px;border-bottom:1px solid #e2e8f0;">Diagnóstico Fin</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in retrasos %}
+                <tr>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.external_id }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.fecha_inicio|date:"Y-m-d" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.fecha_fin|date:"Y-m-d" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;font-weight:bold;">{{ s.ruta_seq }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ udn }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.car }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.operador }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.nomina }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.prog_ini|time:"H:i:s"|default:"—" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.real_ini|time:"H:i:s"|default:"—" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.dif_ini|default_if_none:"—" }} min</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.prog_fin|time:"H:i:s"|default:"—" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.real_fin|time:"H:i:s"|default:"—" }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;text-align:center;">{{ s.dif_fin|default_if_none:"—" }} min</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">{{ s.diagnostico_inicio }}</td>
+                    <td style="padding:5px;border-bottom:1px solid #f1f5f9;">
+                        {% if s.dif_fin is not None and s.dif_fin >= 4 and s.dif_fin < 1300 %}Retrasado{% elif s.dif_fin is not None %}A tiempo{% else %}—{% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="16" style="padding:12px;text-align:center;color:#64748b;">Sin retrasos.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </td></tr>
+    <tr>
+        <td style="background:#f8fafc;color:#94a3b8;padding:14px 24px;font-size:11px;">
+            Portal Clientes · SETTEPI Pacífico
+        </td>
+    </tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

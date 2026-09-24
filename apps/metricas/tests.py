@@ -228,3 +228,32 @@ class RetrasosViewTests(TestCase):
         self.assertEqual(data["total"], 1)
         self.assertEqual(data["rows"][0]["stop_id"], "S1")
         self.assertEqual(data["rows"][0]["calidad"], 75.0)
+
+    def test_paradas_orden_natural(self):
+        for stop_id in ("0010", "0002", "0001"):
+            ParadaRutaSemana.objects.create(
+                business_unit=self.bu,
+                grupo=self.grupo,
+                semana=self.semana,
+                ruta_seq="0010",
+                stop_id=stop_id,
+                window_mode="7d",
+                servicios=1,
+                detectadas=1,
+                calidad=100.0,
+                source="api",
+            )
+        self.client.force_login(self.admin)
+        resp = self.client.get(
+            reverse("metricas:paradas"),
+            {
+                "cliente": "FLEX",
+                "udn": "set_tj2",
+                "anio": 2026,
+                "semana": 34,
+                "window": "7d",
+                "ruta": "0010",
+            },
+        )
+        ids = [r["stop_id"] for r in resp.json()["rows"]]
+        self.assertEqual(ids, ["0001", "0002", "0010", "S1"])

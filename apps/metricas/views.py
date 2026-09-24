@@ -43,6 +43,14 @@ def _int_post(request, name, default):
         return default
 
 
+def _stop_key(value):
+    """Orden natural por Stop: 2 antes que 10, sin fallar con no numéricos."""
+    s = str(value or "").strip()
+    if s.isdigit():
+        return (0, int(s), "")
+    return (1, 0, s)
+
+
 def _udn_arg(request, business_units=None, es_admin=False):
     """Código de UDN solicitado dentro del scope del usuario."""
     code = (request.GET.get("udn") or "").strip()
@@ -646,7 +654,7 @@ def paradas(request):
         qs = qs.filter(grupo_id=int(grupo))
 
     rows = []
-    for p in qs.order_by("calidad", "ruta_seq", "stop_id"):
+    for p in sorted(qs, key=lambda x: (x.ruta_seq, _stop_key(x.stop_id))):
         rows.append(
             {
                 "stop_id": p.stop_id,

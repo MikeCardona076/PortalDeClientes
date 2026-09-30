@@ -13,8 +13,6 @@ RUN pip install --no-cache-dir -r requirements-prod.txt
 
 COPY . .
 
-RUN python manage.py collectstatic --noinput || true
-
 RUN chmod +x deploy/entrypoint.sh
 ENTRYPOINT ["/app/deploy/entrypoint.sh"]
 

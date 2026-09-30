@@ -7,7 +7,6 @@ reales (rid=5) y los puntos GPS de cada unidad.
 
 import json
 import math
-import threading
 import time
 from datetime import date, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -218,77 +217,6 @@ def evaluate_service(service, point_tuples, tol_m, window_min):
     return found
 
 
-def route_quality_services(services, day_points_fn, tol_m=150, window_min=None):
-    total_found = total_stops = 0
-    for svc in services:
-        points = day_points_fn(svc["car"], svc["date"]) or []
-        found = evaluate_service(svc, points, tol_m, window_min)
-        total_found += sum(found)
-        total_stops += len(found)
-    if total_stops == 0:
-        return None
-    return round(total_found / total_stops * 100, 2)
-
-
-def route_stop_quality_services(services, day_points_fn, tol_m=150, window_min=None):
-    """Detalle por parada desde GPS (lista de dicts)."""
-    acc = {}
-    for svc in services:
-        points = day_points_fn(svc["car"], svc["date"]) or []
-        found = evaluate_service(svc, points, tol_m, window_min)
-        for i, stop in enumerate(svc["stops"]):
-            stop_id = str(stop.get("id") or f"{i}")
-            b = acc.setdefault(
-                stop_id,
-                {
-                    "stop_id": stop_id,
-                    "descripcion": str(stop.get("des") or "")[:200],
-                    "lat": stop.get("lat"),
-                    "lng": stop.get("lng"),
-                    "servicios": 0,
-                    "detectadas": 0,
-                    "ultima_deteccion": None,
-                },
-            )
-            b["servicios"] += 1
-            if i < len(found) and found[i]:
-                b["detectadas"] += 1
-                fecha = svc.get("date")
-                if fecha and (
-                    b["ultima_deteccion"] is None or fecha > b["ultima_deteccion"]
-                ):
-                    b["ultima_deteccion"] = fecha
-    for b in acc.values():
-        b["calidad"] = (
-            round(b["detectadas"] / b["servicios"] * 100, 2) if b["servicios"] else None
-        )
-    return list(acc.values())
-
-
-def local_day_points(client, car, local_date, cache):
-    """Puntos GPS de un día local (Traffilog UTC -> America/Tijuana)."""
-    tz = ZoneInfo(settings.TRAFFILOG_TZ)
-    d = date.fromisoformat(local_date)
-    out = []
-    for utc_day in (d.isoformat(), (d + timedelta(days=1)).isoformat()):
-        key = (car, utc_day)
-        if key not in cache:
-            cache[key] = client.day_points(car, utc_day) or []
-        for loc in cache[key]:
-            t = parse_loc_time(loc.get("time"))
-            if t is None:
-                continue
-            try:
-                lat = float(loc.get("latitude"))
-                lng = float(loc.get("longitude"))
-            except (TypeError, ValueError):
-                continue
-            local = t.replace(tzinfo=timezone.utc).astimezone(tz).replace(tzinfo=None)
-            if local.date().isoformat() == local_date:
-                out.append((local.hour * 60 + local.minute + local.second / 60.0, lat, lng))
-    return out
-
-
 # --------------------------------------------------------------------- caché BD
 
 def _db_day_points(client, car, utc_day):
@@ -325,26 +253,66 @@ def local_day_points_db(client, car, local_date):
     return out
 
 
-def refinar_ruta(route, trips, year, week, tol_m=200, ventana_min=None,
-                 client=None, start=None, end=None):
-    """Calidad de ruta reconstruida por GPS (criterio plataforma: 200 m).
+def refinar_ruta_detalle(route, trips, year, week, tol_m=200, ventana_min=None,
+                         client=None, start=None, end=None):
+    """Calidad y detalle por parada en un solo recorrido de GPS.
 
-    route: objeto MAE crudo (con stops).
-    trips: filas rid=5 de la semana (o rango).
-    Devuelve (calidad | None, n_servicios).
+    Devuelve (calidad | None, n_servicios, paradas).
     """
     client = client or TraffilogClient()
     client.login()
     services = services_from_trips(route, trips, year, week, start=start, end=end)
     if not services:
-        return None, 0
-    quality = route_quality_services(
-        services,
-        lambda car, d: local_day_points_db(client, car, d),
-        tol_m=tol_m,
-        window_min=ventana_min,
+        return None, 0, []
+
+    def day_points_fn(car, d):
+        return local_day_points_db(client, car, d)
+    total_found = total_stops = 0
+    acc = {}
+    for svc in services:
+        points = day_points_fn(svc["car"], svc["date"]) or []
+        found = evaluate_service(svc, points, tol_m, ventana_min)
+        total_found += sum(found)
+        total_stops += len(found)
+        for i, stop in enumerate(svc["stops"]):
+            stop_id = str(stop.get("id") or f"{i}")
+            b = acc.setdefault(
+                stop_id,
+                {
+                    "stop_id": stop_id,
+                    "descripcion": str(stop.get("des") or "")[:200],
+                    "lat": stop.get("lat"),
+                    "lng": stop.get("lng"),
+                    "servicios": 0,
+                    "detectadas": 0,
+                    "ultima_deteccion": None,
+                },
+            )
+            b["servicios"] += 1
+            if i < len(found) and found[i]:
+                b["detectadas"] += 1
+                fecha = svc.get("date")
+                if fecha and (
+                    b["ultima_deteccion"] is None or fecha > b["ultima_deteccion"]
+                ):
+                    b["ultima_deteccion"] = fecha
+
+    for b in acc.values():
+        b["calidad"] = (
+            round(b["detectadas"] / b["servicios"] * 100, 2) if b["servicios"] else None
+        )
+    calidad = round(total_found / total_stops * 100, 2) if total_stops else None
+    return calidad, len(services), list(acc.values())
+
+
+def refinar_ruta(route, trips, year, week, tol_m=200, ventana_min=None,
+                 client=None, start=None, end=None):
+    """Calidad de ruta reconstruida por GPS (criterio plataforma: 200 m)."""
+    calidad, n, _ = refinar_ruta_detalle(
+        route, trips, year, week,
+        tol_m=tol_m, ventana_min=ventana_min, client=client, start=start, end=end,
     )
-    return quality, len(services)
+    return calidad, n
 
 
 def refinar_ruta_paradas(
@@ -352,14 +320,8 @@ def refinar_ruta_paradas(
     client=None, start=None, end=None,
 ):
     """Detalle por parada reconstruido por GPS."""
-    client = client or TraffilogClient()
-    client.login()
-    services = services_from_trips(route, trips, year, week, start=start, end=end)
-    if not services:
-        return []
-    return route_stop_quality_services(
-        services,
-        lambda car, d: local_day_points_db(client, car, d),
-        tol_m=tol_m,
-        window_min=ventana_min,
+    _, _, paradas = refinar_ruta_detalle(
+        route, trips, year, week,
+        tol_m=tol_m, ventana_min=ventana_min, client=client, start=start, end=end,
     )
+    return paradas

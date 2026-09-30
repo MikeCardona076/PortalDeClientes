@@ -93,3 +93,19 @@ class NsTests(SimpleTestCase):
         s = ns.normalize_service(self._row(start_eta="10:03:00", end_eta="11:03:00"))
         self.assertEqual(s["diagnostico_inicio"], "A tiempo")
         self.assertFalse(s["es_retraso"])
+
+    def test_dif_llegada_cruce_medianoche(self):
+        self.assertEqual(
+            ns.dif_llegada({"end_eta": "00:10:00", "end_time": "23:50:00"}), 20
+        )
+
+    def test_retraso_cruce_medianoche_coincide_con_detalle(self):
+        row = self._row(
+            start_time="22:00:00",
+            start_eta="22:00:00",
+            end_time="23:50:00",
+            end_eta="00:10:00",
+        )
+        _, _, retraso = ns.trip_flags(row)
+        self.assertEqual(retraso, 1)
+        self.assertEqual(ns.normalize_service(row)["dif_fin"], 20)

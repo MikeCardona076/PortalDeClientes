@@ -25,6 +25,10 @@ from apps.core.models import (
 # UDN por defecto si aún no hay ninguna registrada en el admin.
 DEFAULT_BUNITS = ["set_tj2"]
 
+# Si la API devuelve menos de esta fracción de los servicios guardados,
+# se asume respuesta parcial y no se elimina el detalle existente.
+UMBRAL_BORRADO = 0.5
+
 
 def _bunits(bunits):
     if bunits:
@@ -204,7 +208,7 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
             ("7d", rows, monday.isoformat()),
             ("14d", rows14, start14),
         ):
-            calidad, _ = gps.refinar_ruta(
+            calidad, _n, paradas = gps.refinar_ruta_detalle(
                 route, trips_src, year, week,
                 tol_m=ref.tol_m, ventana_min=ref.ventana_min,
                 client=client, start=ini, end=end,
@@ -217,11 +221,6 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
                     window_mode=mode,
                     defaults={"calidad": calidad, "source": "gps"},
                 )
-            paradas = gps.refinar_ruta_paradas(
-                route, trips_src, year, week,
-                tol_m=ref.tol_m, ventana_min=ref.ventana_min,
-                client=client, start=ini, end=end,
-            )
             if paradas:
                 _guardar_paradas_gps(
                     semana_obj, bu_obj, ref.grupo, ref.ruta_seq, mode, paradas
@@ -280,9 +279,24 @@ def _sync_servicios(semana_obj, bunit_code, rows):
     servicios = [s for s in servicios if s["external_id"]]
     ids = {s["external_id"] for s in servicios}
 
-    ServicioRutaSemana.objects.filter(
+    existentes = ServicioRutaSemana.objects.filter(
         business_unit=bu, semana=semana_obj
-    ).exclude(external_id__in=ids).delete()
+    ).count()
+    if existentes and len(ids) < existentes * UMBRAL_BORRADO:
+        SyncLog.objects.create(
+            proceso="servicios",
+            year=semana_obj.year,
+            week=semana_obj.week,
+            estado="parcial",
+            mensaje=(
+                f"{bunit_code}: la API devolvió {len(ids)} servicios vs "
+                f"{existentes} guardados; no se eliminaron obsoletos"
+            ),
+        )
+    else:
+        ServicioRutaSemana.objects.filter(
+            business_unit=bu, semana=semana_obj
+        ).exclude(external_id__in=ids).delete()
 
     group_cache = {}
 

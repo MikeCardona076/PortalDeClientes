@@ -3,7 +3,9 @@
 Semana ISO: lunes-domingo. El número de semana es la semana ISO de la fecha.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+
+from django.utils import timezone
 
 
 def week_window(year, week):
@@ -23,8 +25,8 @@ def weeks_of_year(year):
 
 
 def current_week():
-    """Semana ISO en curso de la fecha actual."""
-    iso = datetime.now().date().isocalendar()
+    """Semana ISO en curso según la zona horaria del proyecto (America/Tijuana)."""
+    iso = timezone.localdate().isocalendar()
     return iso[0], iso[1]
 
 

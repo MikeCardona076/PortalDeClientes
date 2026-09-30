@@ -48,7 +48,12 @@ class Command(BaseCommand):
         grupo = None
         semana_obj = None
         if o["guardar"]:
-            grupo, _ = GrupoCliente.objects.get_or_create(group=o["grupo"])
+            grupo = GrupoCliente.objects.filter(group=o["grupo"]).first()
+            if grupo is None:
+                self.stderr.write(
+                    f"Grupo '{o['grupo']}' no existe; créalo antes en el admin."
+                )
+                return
             semana_obj, _ = Semana.objects.get_or_create(
                 year=year, week=week, defaults={"inicio": monday, "fin": sunday}
             )

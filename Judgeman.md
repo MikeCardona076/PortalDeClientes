@@ -7,7 +7,7 @@ Documento de contexto para cualquier agente/LLM que trabaje en **PortalDeCliente
 
 ## 1. ¿Qué es?
 
-Portal web (Django 6) que muestra KPIs operativos por **cliente/planta** y **semana**:
+Portal web (Django 5.1/6.x) que muestra KPIs operativos por **cliente/planta** y **semana**:
 - **Total de viajes**
 - **Nivel de Servicio (NS Llegada)**
 - **Calidad de Ruta (CR)** en dos ventanas: **14d** (criterio de la plataforma Bustrax, default) y **7d** (semana exacta)
@@ -21,7 +21,7 @@ Dominio previsto: `portalclientes.pacifico.mikecardona076.com` (aún local).
 
 ## 2. Stack y estructura
 
-- **Django 6** + `python-decouple`, `requests`, `whitenoise`.
+- **Django (5.1/6.x)** + `python-decouple`, `requests`, `whitenoise`.
 - **Dev**: SQLite, email en consola, sin Celery. **Prod**: PostgreSQL, SMTP, Celery/Redis (Docker + Nginx Proxy Manager).
 
 ```
@@ -93,11 +93,13 @@ Campos: `Tipo de Viaje`, `shift`, `status`, `record_quality`, `group`, `Estado d
 
 ## 4. Calendario operativo (¡importante!)
 
-La semana corre **domingo–sábado**. El número de semana = **semana ISO del domingo** que la inicia
-(validado contra el campo `Sem Via` del reporte). Ej.: dom 2026-08-23 = "Semana 34".
+La semana corre **lunes–domingo** (ISO). El número de semana es el **ISO** de la fecha
+(el campo `Sem Via` de Bustrax sólo se usa como referencia informativa).
+Ej.: 2026-08-17 (lunes) inicia la **Semana 34**. El cruce 52/1 se conserva vía `Semana.inicio`
+(p.ej. la semana 1 de 2026 empieza el 2025-12-29).
 
-Implementado en `apps/bustrax/weeks.py`: `start_sunday`, `semvia`, `sunday_of_week`,
-`week_window`, `weeks_of_year`, `current_week`.
+Implementado en `apps/bustrax/weeks.py`: `week_window`, `weeks_of_year`, `current_week`
+(usa la zona horaria `America/Tijuana`), `prev_week`.
 
 ---
 
@@ -109,8 +111,8 @@ Implementado en `apps/bustrax/weeks.py`: `start_sunday`, `semvia`, `sunday_of_we
 - `found` por parada (criterio default `"done+etaTS"`): `status=="done"` y `etaTS` presente.
 - Por ruta: `stopquality`/`routequality = found / total * 100` (promedio de paradas).
 - CR del cliente = **promedio simple** sobre sus rutas IN/N con datos.
-- **Dos ventanas** (`window_mode`): `14d` = `[domingo-7d, sábado]` (replica la ventana de 14 días
-  de la plataforma, default) y `7d` = `[domingo, sábado]`.
+- **Dos ventanas** (`window_mode`): `14d` = `[lunes-7d, domingo]` (replica la ventana de 14 días
+  de la plataforma) y `7d` = `[lunes, domingo]`. El default sale de `CR_WINDOW_DEFAULT`.
 - Calibración conocida (SCHNEIDER S6 2026): CR 14d ≈ 97.14, 7d ≈ 97.17 vs histórico 97.44.
 - **Caveat**: hay rutas donde el ETA sobrecuenta (ej. seq 142 real 91 vs API ~99). Para eso
   existe el **refinamiento GPS** (`apps/bustrax/gps.py`), **cableado** en `sync_semana`:

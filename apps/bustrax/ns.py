@@ -25,29 +25,13 @@ RETRASO_MIN = 4
 RETRASO_MAX = 1300
 
 
-def _time_minutes(value):
-    if not value:
-        return None
-    s = str(value).strip()
-    if s in ("00:00:00", "00:00"):
-        return 0
-    try:
-        parts = s.split(":")
-        return int(parts[0]) * 60 + int(parts[1]) + (int(parts[2]) / 60.0 if len(parts) > 2 else 0)
-    except (ValueError, IndexError):
-        return None
-
-
 def dif_llegada(row):
     eta = row.get("end_eta")
     tme = row.get("end_time")
-    m_eta = _time_minutes(eta)
-    m_tme = _time_minutes(tme)
-    if m_eta is None or m_tme is None:
-        return 0
     if eta and str(eta).strip() == "00:00:00":
         return 0
-    return m_eta - m_tme
+    diff = minutes_diff(eta, tme)
+    return 0 if diff is None else diff
 
 
 def _parse_date(value):

@@ -29,6 +29,19 @@ from apps.core.models import (
 from apps.core.scoping import get_scope_for_user
 
 
+CR_WINDOWS = ("7d", "14d")
+
+
+def _window_arg(request, source=None):
+    """Ventana CR solicitada, validada y con el default del proyecto."""
+    source = request.GET if source is None else source
+    default = settings.CR_WINDOW_DEFAULT
+    if default not in CR_WINDOWS:
+        default = "14d"
+    window = source.get("window") or default
+    return window if window in CR_WINDOWS else default
+
+
 def _int_arg(request, name, default):
     try:
         return int(request.GET.get(name, default))
@@ -91,9 +104,7 @@ def index(request):
     if year not in years:
         years = sorted(set(years) | {year}, reverse=True)
 
-    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
-    if window not in ("14d", "7d"):
-        window = "14d"
+    window = _window_arg(request)
 
     # Todas las semanas del año (aunque no tengan datos aún)
     if year == anio_actual:
@@ -200,9 +211,7 @@ def cliente(request):
 
     year = _int_arg(request, "anio", current_week()[0])
     week = _int_arg(request, "semana", current_week()[1])
-    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
-    if window not in ("14d", "7d"):
-        window = "14d"
+    window = _window_arg(request)
 
     semana = Semana.objects.filter(year=year, week=week).first()
     kpi_viajes = kpi_ns = kpi_entradas = kpi_ret = None
@@ -485,9 +494,7 @@ def enviar_detalle(request):
 
     year = _int_post(request, "anio", current_week()[0])
     week = _int_post(request, "semana", current_week()[1])
-    window = request.POST.get("window", settings.CR_WINDOW_DEFAULT)
-    if window not in ("14d", "7d"):
-        window = "14d"
+    window = _window_arg(request, source=request.POST)
 
     correos = _parse_correos(request.POST.get("destinatarios", ""))
     propio = (request.user.email or "").strip().lower()
@@ -549,9 +556,7 @@ def retrasos(request):
 
     year = _int_arg(request, "anio", current_week()[0])
     week = _int_arg(request, "semana", current_week()[1])
-    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
-    if window not in ("7d", "14d"):
-        window = "7d"
+    window = _window_arg(request)
     semana = Semana.objects.filter(year=year, week=week).first()
     if semana is None:
         return JsonResponse({"total": 0, "page": 1, "page_size": 100, "rows": []})
@@ -633,9 +638,7 @@ def paradas(request):
 
     year = _int_arg(request, "anio", current_week()[0])
     week = _int_arg(request, "semana", current_week()[1])
-    window = request.GET.get("window", settings.CR_WINDOW_DEFAULT)
-    if window not in ("7d", "14d"):
-        window = "7d"
+    window = _window_arg(request)
     semana = Semana.objects.filter(year=year, week=week).first()
     if semana is None:
         return JsonResponse({"total": 0, "window": window, "rows": []})

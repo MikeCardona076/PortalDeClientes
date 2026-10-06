@@ -73,8 +73,9 @@
             <td class="heat-cell rounded" data-viajes="{{ c.viajes }}"
                 data-ns="{{ c.ns|default_if_none:'' }}" data-cr="{{ c.cr|default_if_none:'' }}"
                 onclick="goCliente('{{ r.cliente.nombre|escapejs }}', {{ c.week }})"
-                title="S{{ c.week }} · V:{{ c.viajes }}{% if c.ns is not None %} · NS:{{ c.ns }}%{% endif %}{% if c.cr is not None %} · CR:{{ c.cr }}%{% endif %}">
+                title="S{{ c.week }} · V:{{ c.viajes }}{% if c.ns is not None %} · NS:{{ c.ns }}%{% endif %}{% if c.cr is not None %} · CR:{{ c.cr }}%{% endif %}{% if c.n_comentarios %} · Com:{{ c.n_comentarios }} ({{ c.comentario_resumen }}){% endif %}">
               <span class="cell-txt"></span>
+              {% if c.n_comentarios %}<span class="com-badge">{{ c.n_comentarios }}</span>{% endif %}
             </td>
           {% endfor %}
           <td class="px-3 py-1.5 text-center font-black">{{ r.total }}</td>

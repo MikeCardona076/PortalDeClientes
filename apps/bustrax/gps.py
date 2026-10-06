@@ -165,9 +165,13 @@ def services_from_trips(route, trips, year, week, start=None, end=None):
     ]
     seq = str(route.get("sequential_id"))
     rdesc = (route.get("description") or "").strip()
+    rgroup = (route.get("group_name") or "").strip().upper()
     out = []
     for trip in trips or []:
         if str(trip.get("shift")) != "IN" or str(trip.get("Tipo de Viaje")) != "N":
+            continue
+        # El número de ruta no es único entre grupos: filtrar por grupo.
+        if rgroup and str(trip.get("group") or "").strip().upper() != rgroup:
             continue
         fecha = str(trip.get("start_date") or "")[:10]
         if not (s_start <= fecha <= s_end):
@@ -198,23 +202,63 @@ def services_from_trips(route, trips, year, week, start=None, end=None):
 
 
 def evaluate_service(service, point_tuples, tol_m, window_min):
+    """Evalúa un servicio parada por parada.
+
+    Devuelve una lista con un dict por parada:
+      - found: 1 si algún punto cayó dentro del radio y la ventana.
+      - dist_min: distancia mínima (m) de los puntos en la ventana.
+      - vel_min: velocidad mínima (km/h) de los puntos en el radio.
+      - idle: True si algún punto en el radio tenía vehicle_status == 2.
+      - idle_seg: lapso (s) entre el primer y último punto en ralentí del radio.
+    """
+    stops = service["stops"]
     if not point_tuples:
-        return [0] * len(service["stops"])
+        return [
+            {"found": 0, "dist_min": None, "vel_min": None, "idle": False, "idle_seg": 0.0}
+            for _ in stops
+        ]
     s_min = minutes_of(service["stime"]) or 0
     e_min = minutes_of(service["etime"]) or s_min + 120
     if e_min < s_min:
         e_min += 24 * 60
-    pts = [(m, lat, lng) for (m, lat, lng) in point_tuples if s_min - 10 <= m <= e_min + 10]
-    found = [0] * len(service["stops"])
-    for i, stop in enumerate(service["stops"]):
+    pts = [
+        (m, lat, lng, spd, idle)
+        for (m, lat, lng, spd, idle) in point_tuples
+        if s_min - 10 <= m <= e_min + 10
+    ]
+    out = []
+    for stop in stops:
         sched = stop["sched_min"] if stop["sched_min"] is not None else (s_min + e_min) / 2
         lo = sched - window_min if window_min is not None else s_min
         hi = sched + window_min if window_min is not None else e_min
-        for (m, lat, lng) in pts:
-            if lo <= m <= hi and haversine_m(lat, lng, stop["lat"], stop["lng"]) <= tol_m:
-                found[i] = 1
-                break
-    return found
+        found = 0
+        dist_min = None
+        vel_min = None
+        idle_times = []
+        for (m, lat, lng, spd, idle) in pts:
+            if not (lo <= m <= hi):
+                continue
+            d = haversine_m(lat, lng, stop["lat"], stop["lng"])
+            if d > tol_m:
+                continue
+            found = 1
+            if dist_min is None or d < dist_min:
+                dist_min = d
+            if spd is not None and (vel_min is None or spd < vel_min):
+                vel_min = spd
+            if idle:
+                idle_times.append(m)
+        idle_seg = (max(idle_times) - min(idle_times)) * 60.0 if idle_times else 0.0
+        out.append(
+            {
+                "found": found,
+                "dist_min": dist_min,
+                "vel_min": vel_min,
+                "idle": bool(idle_times),
+                "idle_seg": idle_seg,
+            }
+        )
+    return out
 
 
 # --------------------------------------------------------------------- caché BD
@@ -232,8 +276,23 @@ def _db_day_points(client, car, utc_day):
     return pts
 
 
+def _speed_kmh(loc):
+    try:
+        return float(loc.get("speed"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _idle(loc):
+    """True si el vehículo estaba en ralentí (vehicle_status == 2)."""
+    return str(loc.get("vehicle_status")).strip() == "2"
+
+
 def local_day_points_db(client, car, local_date):
-    """Puntos de un día local usando la caché en BD."""
+    """Puntos de un día local usando la caché en BD.
+
+    Cada punto es (minutos_locales, lat, lng, speed_kmh, idle).
+    """
     tz = ZoneInfo(settings.TRAFFILOG_TZ)
     d = date.fromisoformat(local_date)
     out = []
@@ -249,7 +308,8 @@ def local_day_points_db(client, car, local_date):
                 continue
             local = t.replace(tzinfo=timezone.utc).astimezone(tz).replace(tzinfo=None)
             if local.date().isoformat() == local_date:
-                out.append((local.hour * 60 + local.minute + local.second / 60.0, lat, lng))
+                m = local.hour * 60 + local.minute + local.second / 60.0
+                out.append((m, lat, lng, _speed_kmh(loc), _idle(loc)))
     return out
 
 
@@ -271,8 +331,11 @@ def refinar_ruta_detalle(route, trips, year, week, tol_m=200, ventana_min=None,
     acc = {}
     for svc in services:
         points = day_points_fn(svc["car"], svc["date"]) or []
+        if not points:
+            # Sin puntos GPS de ese car-día: no cuenta como omisión (dato ausente).
+            continue
         found = evaluate_service(svc, points, tol_m, ventana_min)
-        total_found += sum(found)
+        total_found += sum(1 for f in found if f["found"])
         total_stops += len(found)
         for i, stop in enumerate(svc["stops"]):
             stop_id = str(stop.get("id") or f"{i}")
@@ -285,22 +348,37 @@ def refinar_ruta_detalle(route, trips, year, week, tol_m=200, ventana_min=None,
                     "lng": stop.get("lng"),
                     "servicios": 0,
                     "detectadas": 0,
+                    "detenidas": 0,
+                    "vel_min": None,
+                    "idle_seg": 0.0,
                     "ultima_deteccion": None,
                 },
             )
             b["servicios"] += 1
-            if i < len(found) and found[i]:
+            ev = found[i] if i < len(found) else None
+            if ev is None:
+                continue
+            if ev["found"]:
                 b["detectadas"] += 1
                 fecha = svc.get("date")
                 if fecha and (
                     b["ultima_deteccion"] is None or fecha > b["ultima_deteccion"]
                 ):
                     b["ultima_deteccion"] = fecha
+            if ev["idle"]:
+                b["detenidas"] += 1
+            if ev["vel_min"] is not None and (
+                b["vel_min"] is None or ev["vel_min"] < b["vel_min"]
+            ):
+                b["vel_min"] = ev["vel_min"]
+            if ev["idle_seg"] and ev["idle_seg"] > b["idle_seg"]:
+                b["idle_seg"] = ev["idle_seg"]
 
     for b in acc.values():
         b["calidad"] = (
             round(b["detectadas"] / b["servicios"] * 100, 2) if b["servicios"] else None
         )
+        b["idle_seg"] = round(b["idle_seg"], 1) if b["idle_seg"] else None
     calidad = round(total_found / total_stops * 100, 2) if total_stops else None
     return calidad, len(services), list(acc.values())
 

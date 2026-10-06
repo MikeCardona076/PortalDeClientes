@@ -214,6 +214,10 @@ class ParadaRutaSemana(models.Model):
     window_mode = models.CharField(max_length=5, default="7d")
     servicios = models.IntegerField(default=0)
     detectadas = models.IntegerField(default=0)
+    detenidas = models.IntegerField(default=0)
+    servicios_gps = models.IntegerField(default=0)
+    vel_min = models.FloatField(null=True, blank=True)
+    idle_seg = models.FloatField(null=True, blank=True)
     calidad = models.FloatField(null=True, blank=True)
     ultima_deteccion = models.DateField(null=True, blank=True)
     source = models.CharField(max_length=10, default="api")
@@ -228,6 +232,43 @@ class ParadaRutaSemana(models.Model):
         ]
         verbose_name = "Parada por ruta"
         verbose_name_plural = "Paradas por ruta"
+
+
+class ComentarioSemana(models.Model):
+    """Comentario/nota de autor sobre una semana de un cliente y UDN."""
+
+    cliente = models.ForeignKey(
+        Cliente, on_delete=models.CASCADE, related_name="comentarios"
+    )
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.CASCADE, related_name="comentarios"
+    )
+    semana = models.ForeignKey(
+        Semana, on_delete=models.CASCADE, related_name="comentarios"
+    )
+    autor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="comentarios",
+    )
+    texto = models.TextField()
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["creado"]
+        indexes = [
+            models.Index(fields=["cliente", "business_unit", "semana"]),
+        ]
+        verbose_name = "Comentario de semana"
+        verbose_name_plural = "Comentarios de semana"
+
+    def __str__(self):
+        return f"{self.cliente.nombre} · S{self.semana.week}/{self.semana.year}"
+
+    def autor_nombre(self):
+        if not self.autor:
+            return "—"
+        return self.autor.get_full_name() or self.autor.username
 
 
 class MaeRuta(models.Model):

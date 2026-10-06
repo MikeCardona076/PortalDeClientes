@@ -132,45 +132,76 @@ def _recompute_cliente_cr(semana_obj, window_mode):
         )
 
 
-def _guardar_paradas_gps(semana_obj, bu, grupo, ruta_seq, mode, paradas):
-    ParadaRutaSemana.objects.filter(
+def _actualizar_paradas_gps(semana_obj, bu, grupo, ruta_seq, mode, paradas):
+    """Enriquece las paradas API con las métricas GPS, sin reemplazar la fila.
+
+    No toca `servicios`/`detectadas`/`calidad`/`ultima_deteccion`/`source`: la
+    Calidad de ruta sigue siendo la del API. Solo agrega velocidad, detenciones
+    y la cobertura GPS (`servicios_gps`).
+    """
+    base = ParadaRutaSemana.objects.filter(
         business_unit=bu,
         semana=semana_obj,
         grupo=grupo,
         ruta_seq=ruta_seq,
         window_mode=mode,
-    ).delete()
-    objs = []
+    )
+    stop_ids = {str(p["stop_id"]) for p in paradas if p.get("stop_id")}
+    base.exclude(stop_id__in=stop_ids).update(
+        detenidas=0, servicios_gps=0, vel_min=None, idle_seg=None
+    )
     for p in paradas:
         if not p.get("stop_id"):
             continue
-        objs.append(
-            ParadaRutaSemana(
-                business_unit=bu,
-                semana=semana_obj,
-                grupo=grupo,
-                ruta_seq=ruta_seq,
-                stop_id=str(p["stop_id"]),
-                descripcion=(p.get("descripcion") or "")[:200],
-                lat=p.get("lat"),
-                lng=p.get("lng"),
-                window_mode=mode,
-                servicios=p.get("servicios", 0),
-                detectadas=p.get("detectadas", 0),
-                calidad=p.get("calidad"),
-                ultima_deteccion=_fecha(p.get("ultima_deteccion")),
-                source="gps",
-            )
+        base.filter(stop_id=str(p["stop_id"])).update(
+            detenidas=p.get("detenidas", 0),
+            servicios_gps=p.get("servicios", 0),
+            vel_min=p.get("vel_min"),
+            idle_seg=p.get("idle_seg"),
         )
-    ParadaRutaSemana.objects.bulk_create(objs, batch_size=500)
 
 
-def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, start14, end):
-    """Aplica GPS a las rutas marcadas en RefinamientoRuta (14d y 7d)."""
-    refs = list(
+def _seed_refinamientos(bu, semana_obj):
+    """Crea RefinamientoRuta para cada ruta IN/N nueva de la semana.
+
+    Mantiene el GPS "automático": cualquier ruta/cliente nuevo entra a refinar
+    sin intervención manual. Se puede desactivar con GPS_REFINAR_AUTO=False.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "GPS_REFINAR_AUTO", True):
+        return 0
+    pares = (
+        ServicioRutaSemana.objects.filter(
+            business_unit__code=bu, semana=semana_obj, shift="IN", tipo_viaje="N"
+        )
+        .exclude(ruta_seq="")
+        .values_list("grupo_id", "ruta_seq")
+        .distinct()
+    )
+    existentes = set(
         RefinamientoRuta.objects.filter(
-            activo=True, grupo__business_unit__code=bu
-        ).select_related("grupo")
+            grupo__business_unit__code=bu
+        ).values_list("grupo_id", "ruta_seq")
+    )
+    nuevos = []
+    for grupo_id, ruta_seq in pares:
+        if (grupo_id, ruta_seq) not in existentes:
+            nuevos.append(RefinamientoRuta(grupo_id=grupo_id, ruta_seq=ruta_seq))
+    if nuevos:
+        RefinamientoRuta.objects.bulk_create(nuevos, ignore_conflicts=True)
+    return len(nuevos)
+
+
+def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, start14, end,
+                           grupo=None):
+    """Aplica GPS a las rutas marcadas en RefinamientoRuta (14d y 7d)."""
+    _seed_refinamientos(bu, semana_obj)
+    filtro = {"activo": True, "grupo__business_unit__code": bu}
+    if grupo:
+        filtro["grupo__group"] = grupo
+    refs = list(
+        RefinamientoRuta.objects.filter(**filtro).select_related("grupo")
     )
     if not refs:
         return 0
@@ -186,8 +217,10 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
         )
         return 0
 
+    # El MAE identifica la ruta por (group_name, sequential_id sin ceros), mientras
+    # que el rid=5/BD usa (grupo.group, ruta_seq con ceros: "0142"). Normalizamos.
     idx = {
-        str(r.get("sequential_id")): r
+        (str(r.get("group_name")), str(r.get("sequential_id")).lstrip("0")): r
         for r in mae_routes
         if str(r.get("shift")) == "IN" and str(r.get("route_type")) == "N"
     }
@@ -201,30 +234,23 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
     client = gps.TraffilogClient()
     hechos = 0
     for ref in refs:
-        route = idx.get(str(ref.ruta_seq))
+        route = idx.get((ref.grupo.group, str(ref.ruta_seq).lstrip("0")))
         if not route:
             continue
         for mode, trips_src, ini in (
             ("7d", rows, monday.isoformat()),
             ("14d", rows14, start14),
         ):
-            calidad, _n, paradas = gps.refinar_ruta_detalle(
+            # La Calidad de ruta NO se toca: se queda la del API. El GPS solo
+            # enriquece las paradas con velocidad/detenciones/cobertura.
+            _calidad, _n, paradas = gps.refinar_ruta_detalle(
                 route, trips_src, year, week,
                 tol_m=ref.tol_m, ventana_min=ref.ventana_min,
                 client=client, start=ini, end=end,
             )
-            if calidad is not None:
-                CRRutaSemana.objects.update_or_create(
-                    grupo=ref.grupo,
-                    semana=semana_obj,
-                    ruta_seq=ref.ruta_seq,
-                    window_mode=mode,
-                    defaults={"calidad": calidad, "source": "gps"},
-                )
-            if paradas:
-                _guardar_paradas_gps(
-                    semana_obj, bu_obj, ref.grupo, ref.ruta_seq, mode, paradas
-                )
+            _actualizar_paradas_gps(
+                semana_obj, bu_obj, ref.grupo, ref.ruta_seq, mode, paradas
+            )
         hechos += 1
     return hechos
 

@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from .models import (
     BusinessUnit,
     Cliente,
+    ComentarioSemana,
     CRClienteSemana,
     CRRutaSemana,
     GpsPunto,
@@ -44,12 +45,28 @@ class GrupoClienteAdmin(admin.ModelAdmin):
 @admin.register(BusinessUnit)
 class BusinessUnitAdmin(admin.ModelAdmin):
     list_display = ("code", "nombre", "activa")
+    search_fields = ("code", "nombre")
 
 
 @admin.register(Semana)
 class SemanaAdmin(admin.ModelAdmin):
     list_display = ("year", "week", "inicio", "fin")
     list_filter = ("year",)
+    search_fields = ("year", "week")
+
+
+@admin.register(ComentarioSemana)
+class ComentarioSemanaAdmin(admin.ModelAdmin):
+    list_display = ("cliente", "semana", "business_unit", "autor", "creado", "texto_corto")
+    list_filter = ("business_unit", "semana__year", "cliente")
+    search_fields = ("texto", "cliente__nombre", "autor__username", "semana__week")
+    date_hierarchy = "creado"
+    readonly_fields = ("creado", "actualizado")
+    autocomplete_fields = ("cliente", "business_unit", "semana", "autor")
+
+    @admin.display(description="Comentario")
+    def texto_corto(self, obj):
+        return (obj.texto[:60] + "…") if len(obj.texto) > 60 else obj.texto
 
 
 @admin.register(ViajeSemana)

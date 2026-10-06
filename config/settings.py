@@ -138,7 +138,7 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 DEFAULT_FROM_EMAIL = config(
-    "DEFAULT_FROM_EMAIL", default="portalclientes@pacifico.mikecardona076.com"
+    "DEFAULT_FROM_EMAIL", default="no.reply.kpissett@gmail.com"
 )
 
 # ------------------------------------------------------------------ APIs externas
@@ -157,6 +157,10 @@ TRAFFILOG_PASSWORD = config("TRAFFILOG_PASSWORD", default="")
 TRAFFILOG_TZ = config("TRAFFILOG_TZ", default="America/Tijuana")
 
 CR_WINDOW_DEFAULT = config("CR_WINDOW_DEFAULT", default="7d")
+
+# ------------------------------------------------------------------ GPS / CR
+# Si está activo, el sync crea RefinamientoRuta para toda ruta IN/N nueva.
+GPS_REFINAR_AUTO = config("GPS_REFINAR_AUTO", default=True, cast=bool)
 
 # ------------------------------------------------------------------ Seguridad prod
 if IS_PROD:

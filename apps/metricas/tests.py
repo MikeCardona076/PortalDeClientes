@@ -8,11 +8,13 @@ from django.urls import reverse
 from apps.core.models import (
     BusinessUnit,
     Cliente,
+    ComentarioSemana,
     GrupoCliente,
     ParadaRutaSemana,
     PerfilUsuario,
     Semana,
     ServicioRutaSemana,
+    ViajeSemana,
 )
 from apps.metricas.views import _correos_cliente
 
@@ -257,3 +259,149 @@ class RetrasosViewTests(TestCase):
         )
         ids = [r["stop_id"] for r in resp.json()["rows"]]
         self.assertEqual(ids, ["0001", "0002", "0010", "S1"])
+
+
+class ComentarioSemanaTests(TestCase):
+    def setUp(self):
+        self.bu = BusinessUnit.objects.create(code="set_tj2", nombre="TJ2")
+        self.cliente = Cliente.objects.create(nombre="FLEX")
+        self.grupo = GrupoCliente.objects.create(
+            group="FLEX-GRAL", cliente=self.cliente, business_unit=self.bu
+        )
+        self.semana = Semana.objects.create(
+            year=2026, week=34, inicio=date(2026, 8, 17), fin=date(2026, 8, 23)
+        )
+        self.admin = User.objects.create_superuser("admin", password="x")
+        self.user = User.objects.create_user("normal", password="x")
+        self.otro = User.objects.create_user("otro", password="x")
+        for u in (self.user, self.otro):
+            perfil = PerfilUsuario.objects.create(
+                user=u, debe_cambiar_password=False
+            )
+            perfil.clientes.add(self.cliente)
+            perfil.business_units.add(self.bu)
+
+    def _crear_payload(self, **over):
+        base = {
+            "cliente": "FLEX",
+            "udn": "set_tj2",
+            "anio": 2026,
+            "semana": 34,
+            "texto": "Revisar ruta 0010",
+        }
+        base.update(over)
+        return base
+
+    def test_usuario_con_acceso_crea_comentario(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            reverse("metricas:comentario_crear"), self._crear_payload()
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["comentario"]["autor"], "normal")
+        self.assertTrue(data["comentario"]["puede_borrar"])
+        self.assertEqual(ComentarioSemana.objects.count(), 1)
+
+    def test_usuario_sin_acceso_no_crea(self):
+        otro = User.objects.create_user("sinacceso", password="x")
+        self.client.force_login(otro)
+        resp = self.client.post(
+            reverse("metricas:comentario_crear"), self._crear_payload()
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(ComentarioSemana.objects.count(), 0)
+
+    def test_comentario_vacio_rechazado(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            reverse("metricas:comentario_crear"), self._crear_payload(texto="   ")
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ComentarioSemana.objects.count(), 0)
+
+    def test_autor_elimina_su_comentario(self):
+        comentario = ComentarioSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            autor=self.user, texto="nota",
+        )
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            reverse("metricas:comentario_eliminar"), {"id": comentario.id}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(ComentarioSemana.objects.count(), 0)
+
+    def test_otro_usuario_no_elimina(self):
+        comentario = ComentarioSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            autor=self.user, texto="nota",
+        )
+        self.client.force_login(self.otro)
+        resp = self.client.post(
+            reverse("metricas:comentario_eliminar"), {"id": comentario.id}
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(ComentarioSemana.objects.count(), 1)
+
+    def test_admin_elimina_cualquiera(self):
+        comentario = ComentarioSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            autor=self.user, texto="nota",
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("metricas:comentario_eliminar"), {"id": comentario.id}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(ComentarioSemana.objects.count(), 0)
+
+    def test_cliente_view_incluye_comentarios_y_anio(self):
+        ComentarioSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            autor=self.user, texto="Texto visible en la ficha",
+        )
+        self.client.force_login(self.user)
+        resp = self.client.get(
+            reverse("metricas:cliente"),
+            {"cliente": "FLEX", "udn": "set_tj2", "anio": 2026, "semana": 34, "window": "7d"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Texto visible en la ficha")
+        self.assertEqual(resp.context["serie"][-1]["year"], 2026)
+        self.assertEqual(resp.context["serie"][-1]["comentarios"][0]["autor"], "normal")
+        # El historial incluye solo la semana con comentarios
+        self.assertEqual(len(resp.context["historial_meses"]), 1)
+        semanas = resp.context["historial_meses"][0]["semanas"]
+        self.assertEqual([s["week"] for s in semanas], [34])
+        self.assertIn("2026-34", resp.context["comentarios_json"])
+
+    def test_cliente_view_historial_vacio(self):
+        self.client.force_login(self.user)
+        resp = self.client.get(
+            reverse("metricas:cliente"),
+            {"cliente": "FLEX", "udn": "set_tj2", "anio": 2026, "semana": 34, "window": "7d"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["historial_meses"], [])
+        self.assertContains(resp, "Aún no hay comentarios")
+
+    def test_index_muestra_conteo_comentarios(self):
+        ViajeSemana.objects.create(
+            cliente=self.cliente, semana=self.semana, total=5, ns=95
+        )
+        ComentarioSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            autor=self.user, texto="Nota matriz",
+        )
+        self.client.force_login(self.user)
+        resp = self.client.get(
+            reverse("metricas:index"),
+            {"anio": 2026, "udn": "set_tj2", "window": "7d"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        row = resp.context["rows"][0]
+        cell = next(c for c in row["cells"] if c["week"] == 34)
+        self.assertEqual(cell["n_comentarios"], 1)
+        self.assertIn("normal", cell["comentario_resumen"])

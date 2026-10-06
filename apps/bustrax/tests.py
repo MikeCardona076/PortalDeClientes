@@ -2,7 +2,7 @@ from datetime import date
 
 from django.test import SimpleTestCase
 
-from apps.bustrax import ns
+from apps.bustrax import gps, ns
 from apps.bustrax.weeks import prev_week, week_window, weeks_of_year
 
 
@@ -109,3 +109,47 @@ class NsTests(SimpleTestCase):
         _, _, retraso = ns.trip_flags(row)
         self.assertEqual(retraso, 1)
         self.assertEqual(ns.normalize_service(row)["dif_fin"], 20)
+
+
+class GpsEvaluateServiceTests(SimpleTestCase):
+    STOP = {"index": 0, "id": "S1", "des": "PARADA 1", "lat": 32.0, "lng": -117.0,
+            "sched_min": None}
+
+    def _service(self):
+        return {"stops": [self.STOP], "stime": "10:00:00", "etime": "11:00:00"}
+
+    def test_idle_marca_detenida_y_velocidad_minima(self):
+        points = [
+            (605, 32.0001, -117.0001, 25.0, False),
+            (610, 32.0000, -117.0000, 0.0, True),
+            (615, 32.0000, -117.0000, 0.0, True),
+        ]
+        ev = gps.evaluate_service(self._service(), points, tol_m=200, window_min=None)[0]
+        self.assertEqual(ev["found"], 1)
+        self.assertTrue(ev["idle"])
+        self.assertEqual(ev["vel_min"], 0.0)
+        self.assertEqual(ev["idle_seg"], 300.0)
+
+    def test_paso_sin_detenerse_no_es_idle(self):
+        points = [
+            (610, 32.0000, -117.0000, 45.0, False),
+            (611, 32.0001, -117.0001, 30.0, False),
+        ]
+        ev = gps.evaluate_service(self._service(), points, tol_m=200, window_min=None)[0]
+        self.assertEqual(ev["found"], 1)
+        self.assertFalse(ev["idle"])
+        self.assertEqual(ev["vel_min"], 30.0)
+
+    def test_fuera_de_radio_no_detecta(self):
+        points = [(610, 32.01, -117.0, 45.0, False)]
+        ev = gps.evaluate_service(self._service(), points, tol_m=200, window_min=None)[0]
+        self.assertEqual(ev["found"], 0)
+        self.assertFalse(ev["idle"])
+        self.assertIsNone(ev["vel_min"])
+
+    def test_sin_puntos_devuelve_defaults(self):
+        ev = gps.evaluate_service(self._service(), [], tol_m=200, window_min=None)[0]
+        self.assertEqual(ev["found"], 0)
+        self.assertFalse(ev["idle"])
+        self.assertIsNone(ev["vel_min"])
+        self.assertEqual(ev["idle_seg"], 0.0)

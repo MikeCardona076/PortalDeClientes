@@ -11,12 +11,15 @@ from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
+from django.utils.formats import date_format
 
 from apps.bustrax import ns
 from apps.bustrax.weeks import current_week, prev_week, weeks_of_year
 from apps.core.models import (
     BusinessUnit,
     Cliente,
+    ComentarioSemana,
     CRClienteSemana,
     CRRutaSemana,
     ParadaRutaSemana,
@@ -88,6 +91,57 @@ def _get_udn_bu(code):
     return BusinessUnit.objects.filter(code=code).first()
 
 
+def _comentario_json(comentario, user, es_admin):
+    """Representación del comentario para la API/JS."""
+    return {
+        "id": comentario.id,
+        "texto": comentario.texto,
+        "autor": comentario.autor_nombre(),
+        "creado": date_format(
+            timezone.localtime(comentario.creado), "d M Y H:i"
+        ),
+        "puede_borrar": bool(
+            es_admin
+            or (comentario.autor_id and comentario.autor_id == user.id)
+        ),
+    }
+
+
+def _resumen_comentario(comentarios):
+    """Resumen corto del último comentario para tooltips de la matriz."""
+    if not comentarios:
+        return ""
+    c = comentarios[-1]
+    texto = (c.texto or "").strip().replace("\n", " ")
+    if len(texto) > 80:
+        texto = texto[:79] + "…"
+    return f"{c.autor_nombre()}: {texto}"
+
+
+def _cliente_bu_scope(request, cliente_nombre, udn):
+    """Valida cliente y UDN contra el scope del usuario.
+
+    Devuelve (cliente, bu, es_admin, error_response). error_response es None
+    cuando la validación pasa.
+    """
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
+    cliente_obj = Cliente.objects.filter(nombre=cliente_nombre).first()
+    if cliente_obj is None:
+        return None, None, es_admin, JsonResponse(
+            {"error": "Cliente no encontrado"}, status=404
+        )
+    if not es_admin and not clientes.filter(pk=cliente_obj.pk).exists():
+        return None, None, es_admin, JsonResponse(
+            {"error": "No autorizado"}, status=403
+        )
+    bu = _get_udn_bu(udn) if udn else None
+    if bu is None or (not es_admin and not business_units.filter(pk=bu.pk).exists()):
+        return None, None, es_admin, JsonResponse(
+            {"error": "UDN no encontrada"}, status=404
+        )
+    return cliente_obj, bu, es_admin, None
+
+
 @login_required
 def index(request):
     clientes, business_units, es_admin = get_scope_for_user(request.user)
@@ -97,6 +151,7 @@ def index(request):
         ).distinct()
 
     udn = _udn_arg(request, business_units, es_admin) or "set_tj2"
+    bu = _get_udn_bu(udn)
     anio_actual = current_week()[0]
     db_years = set(Semana.objects.values_list("year", flat=True).distinct())
     years = sorted(db_years | {anio_actual}, reverse=True)
@@ -147,6 +202,20 @@ def index(request):
         for v in ViajeSemana.objects.filter(semana__year=year, cliente__in=clientes)
     }
 
+    # Comentarios del año por cliente/semana (para la insignia de la matriz)
+    comentarios = {}
+    if bu is not None:
+        for comentario in (
+            ComentarioSemana.objects.filter(
+                business_unit=bu, semana__year=year, cliente__in=clientes
+            )
+            .select_related("autor")
+            .order_by("creado")
+        ):
+            comentarios.setdefault(
+                (comentario.cliente_id, comentario.semana_id), []
+            ).append(comentario)
+
     rows = []
     for cliente in clientes:
         cells = []
@@ -155,12 +224,15 @@ def index(request):
             s = semanas.get(w)
             v = viajes.get((cliente.id, s.id)) if s else None
             c = cr.get((cliente.id, s.id)) if s else None
+            cs = comentarios.get((cliente.id, s.id), []) if s else []
             cells.append(
                 {
                     "week": w,
                     "viajes": v.total if v else 0,
                     "ns": v.ns if v else None,
                     "cr": c.calidad if c else None,
+                    "n_comentarios": len(cs),
+                    "comentario_resumen": _resumen_comentario(cs),
                 }
             )
             total += (v.total if v else 0)
@@ -243,11 +315,74 @@ def cliente(request):
         serie.append(
             {
                 "label": f"S{s.week}",
+                "year": s.year,
+                "week": s.week,
+                "semana_id": s.id,
+                "inicio": s.inicio,
+                "fin": s.fin,
                 "viajes": v.total if v else 0,
                 "ns": v.ns if v else None,
                 "cr": c.calidad if c else None,
             }
         )
+
+    # Comentarios (hilo) del cliente + UDN: mapa completo e historial
+    comentarios_map = {}
+    for comentario in (
+        ComentarioSemana.objects.filter(cliente=cliente_obj, business_unit=bu)
+        .select_related("autor", "semana")
+        .order_by("creado")
+    ):
+        comentarios_map.setdefault(comentario.semana_id, []).append(comentario)
+
+    comentarios_json = {}
+    for lista in comentarios_map.values():
+        s = lista[0].semana
+        comentarios_json[f"{s.year}-{s.week}"] = {
+            "year": s.year,
+            "week": s.week,
+            "semana_id": s.id,
+            "inicio": s.inicio,
+            "fin": s.fin,
+            "comentarios": [
+                _comentario_json(c, request.user, es_admin) for c in lista
+            ],
+        }
+
+    for item in serie:
+        info = comentarios_json.get(f"{item['year']}-{item['week']}")
+        item["comentarios"] = info["comentarios"] if info else []
+        item["ultimo"] = item["comentarios"][-1] if item["comentarios"] else None
+
+    historial = []
+    for lista in comentarios_map.values():
+        s = lista[0].semana
+        serializados = comentarios_json[f"{s.year}-{s.week}"]["comentarios"]
+        historial.append(
+            {
+                "year": s.year,
+                "week": s.week,
+                "semana_id": s.id,
+                "inicio": s.inicio,
+                "fin": s.fin,
+                "comentarios": serializados,
+                "ultimo": serializados[-1],
+            }
+        )
+    historial.sort(key=lambda h: (h["year"], h["week"]), reverse=True)
+
+    historial_meses = []
+    for h in historial:
+        clave = h["inicio"].strftime("%Y-%m")
+        if not historial_meses or historial_meses[-1]["clave"] != clave:
+            historial_meses.append(
+                {
+                    "clave": clave,
+                    "nombre": date_format(h["inicio"], "F Y").capitalize(),
+                    "semanas": [],
+                }
+            )
+        historial_meses[-1]["semanas"].append(h)
 
     detalle = []
     if semana:
@@ -321,6 +456,8 @@ def cliente(request):
             "kpi_ret": kpi_ret,
             "cr_actual": cr_actual,
             "serie": serie,
+            "historial_meses": historial_meses,
+            "comentarios_json": comentarios_json,
             "detalle": detalle,
             "correos_cliente": _correos_cliente(
                 cliente_obj, bu, excluir=request.user.email
@@ -666,6 +803,10 @@ def paradas(request):
                 "lng": p.lng,
                 "servicios": p.servicios,
                 "detectadas": p.detectadas,
+                "detenidas": p.detenidas,
+                "servicios_gps": p.servicios_gps,
+                "vel_min": p.vel_min,
+                "idle_seg": p.idle_seg,
                 "calidad": p.calidad,
                 "ultima_deteccion": p.ultima_deteccion.isoformat()
                 if p.ultima_deteccion
@@ -674,3 +815,75 @@ def paradas(request):
             }
         )
     return JsonResponse({"total": len(rows), "window": window, "rows": rows})
+
+
+@login_required
+def comentario_crear(request):
+    """Agrega un comentario al hilo de una semana (cliente + UDN)."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Método no permitido"}, status=405)
+
+    cliente_obj, bu, es_admin, error = _cliente_bu_scope(
+        request, request.POST.get("cliente", ""), request.POST.get("udn", "")
+    )
+    if error is not None:
+        return error
+
+    texto = (request.POST.get("texto") or "").strip()
+    if not texto:
+        return JsonResponse({"error": "El comentario está vacío."}, status=400)
+    if len(texto) > 2000:
+        return JsonResponse(
+            {"error": "El comentario es demasiado largo (máx. 2000 caracteres)."},
+            status=400,
+        )
+
+    year = _int_post(request, "anio", current_week()[0])
+    week = _int_post(request, "semana", current_week()[1])
+    semana = Semana.objects.filter(year=year, week=week).first()
+    if semana is None:
+        return JsonResponse({"error": "Semana no encontrada"}, status=404)
+
+    comentario = ComentarioSemana.objects.create(
+        cliente=cliente_obj,
+        business_unit=bu,
+        semana=semana,
+        autor=request.user,
+        texto=texto,
+    )
+    return JsonResponse(
+        {"ok": True, "comentario": _comentario_json(comentario, request.user, es_admin)}
+    )
+
+
+@login_required
+def comentario_eliminar(request):
+    """Elimina un comentario. Solo el autor o un administrador."""
+    if request.method != "POST":
+        return JsonResponse({"error": "Método no permitido"}, status=405)
+
+    try:
+        comentario_id = int(request.POST.get("id", ""))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Comentario no encontrado"}, status=404)
+
+    clientes, business_units, es_admin = get_scope_for_user(request.user)
+    comentario = (
+        ComentarioSemana.objects.filter(pk=comentario_id)
+        .select_related("autor")
+        .first()
+    )
+    if comentario is None:
+        return JsonResponse({"error": "Comentario no encontrado"}, status=404)
+    if not es_admin and (
+        not clientes.filter(pk=comentario.cliente_id).exists()
+        or not business_units.filter(pk=comentario.business_unit_id).exists()
+    ):
+        return JsonResponse({"error": "No autorizado"}, status=403)
+    if not es_admin and comentario.autor_id != request.user.id:
+        return JsonResponse(
+            {"error": "Solo el autor puede eliminar su comentario."}, status=403
+        )
+
+    comentario.delete()
+    return JsonResponse({"ok": True})

@@ -7,8 +7,8 @@ services:
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
     expose:
       - "8000"
     depends_on:
@@ -19,7 +19,7 @@ services:
     volumes:
       - static:/app/staticfiles
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/login/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://localhost:8000/login/', headers={'Host': 'portalclientes.pacifico.mikecardona076.com', 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(r, timeout=8)"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -37,8 +37,8 @@ services:
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       db:
         condition: service_healthy
@@ -54,8 +54,8 @@ services:
     environment:
       DJANGO_ENV: prod
       POSTGRES_HOST: db
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes:
       - beatdata:/app/beat
     depends_on:
@@ -93,7 +93,7 @@ services:
       PGUSER: ${POSTGRES_USER:-clientesd}
       PGPASSWORD: ${POSTGRES_PASSWORD:-clientesd}
       PGDATABASE: ${POSTGRES_DB:-clientesd}
-      BACKUP_RETENTION_DAYS: "7"
+      BACKUP_RETENTION_DAYS: "30"
       BACKUP_INTERVAL_SECONDS: "86400"
     volumes:
       - ./deploy/pg_backup.sh:/backup.sh:ro
@@ -104,6 +104,7 @@ services:
     image: redis:7-alpine
     container_name: clientesd_redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
 
 volumes:
   pgdata:

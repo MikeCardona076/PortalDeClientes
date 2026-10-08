@@ -62,14 +62,19 @@ def _grupo(group, gcode="", bunit_code=""):
         )
     grupo, _ = GrupoCliente.objects.update_or_create(
         group=group,
-        defaults={"cliente": cliente, "gcode": gcode, "business_unit": bu},
+        business_unit=bu,
+        defaults={"cliente": cliente, "gcode": gcode},
     )
     return grupo
 
 
+@transaction.atomic
 def _store_cr(semana_obj, bunit_code, stats, window_mode):
     """Guarda CR por ruta y agrega por cliente."""
     aggs = cr.aggregate_clients(stats)
+    bu, _ = BusinessUnit.objects.get_or_create(
+        code=bunit_code, defaults={"nombre": bunit_code}
+    )
     for (group, ruta_seq), b in stats.items():
         if b["calidad"] is None:
             continue
@@ -92,6 +97,7 @@ def _store_cr(semana_obj, bunit_code, stats, window_mode):
         cliente = _cliente(cliente_base)
         CRClienteSemana.objects.update_or_create(
             cliente=cliente,
+            business_unit=bu,
             semana=semana_obj,
             window_mode=window_mode,
             defaults={
@@ -103,17 +109,21 @@ def _store_cr(semana_obj, bunit_code, stats, window_mode):
     return len(aggs)
 
 
-def _recompute_cliente_cr(semana_obj, window_mode):
-    """Recalcula CRClienteSemana promediando CRRutaSemana (API y/o GPS)."""
+@transaction.atomic
+def _recompute_cliente_cr(semana_obj, window_mode, bu):
+    """Recalcula CRClienteSemana promediando CRRutaSemana de una UDN (API y/o GPS)."""
     from collections import defaultdict
 
     filas = CRRutaSemana.objects.filter(
-        semana=semana_obj, window_mode=window_mode
+        semana=semana_obj, window_mode=window_mode, grupo__business_unit=bu
     ).select_related("grupo")
     agg = defaultdict(list)
     hay_gps = False
     for f in filas:
         if f.calidad is None:
+            continue
+        if f.source == "gps" and not f.servicios:
+            # Fila GPS incompleta (p. ej. guardada sin `servicios`): no promediar.
             continue
         agg[f.grupo.cliente_id].append(f.calidad)
         if f.source == "gps":
@@ -122,6 +132,7 @@ def _recompute_cliente_cr(semana_obj, window_mode):
         source = "mixto" if hay_gps else "api"
         CRClienteSemana.objects.update_or_create(
             cliente_id=cliente_id,
+            business_unit=bu,
             semana=semana_obj,
             window_mode=window_mode,
             defaults={
@@ -132,6 +143,7 @@ def _recompute_cliente_cr(semana_obj, window_mode):
         )
 
 
+@transaction.atomic
 def _actualizar_paradas_gps(semana_obj, bu, grupo, ruta_seq, mode, paradas):
     """Enriquece las paradas API con las métricas GPS, sin reemplazar la fila.
 
@@ -243,11 +255,24 @@ def _aplicar_refinamientos(semana_obj, bu, trips, rows, year, week, monday, star
         ):
             # La Calidad de ruta NO se toca: se queda la del API. El GPS solo
             # enriquece las paradas con velocidad/detenciones/cobertura.
-            _calidad, _n, paradas = gps.refinar_ruta_detalle(
-                route, trips_src, year, week,
-                tol_m=ref.tol_m, ventana_min=ref.ventana_min,
-                client=client, start=ini, end=end,
-            )
+            try:
+                _calidad, _n, paradas = gps.refinar_ruta_detalle(
+                    route, trips_src, year, week,
+                    tol_m=ref.tol_m, ventana_min=ref.ventana_min,
+                    client=client, start=ini, end=end,
+                )
+            except Exception as exc:  # noqa: BLE001 (resiliencia ante Traffilog)
+                SyncLog.objects.create(
+                    proceso="gps",
+                    year=year,
+                    week=week,
+                    estado="parcial",
+                    mensaje=(
+                        f"{bu}: {ref.grupo.group} ruta {ref.ruta_seq} "
+                        f"{mode} falló ({exc})"
+                    ),
+                )
+                continue
             _actualizar_paradas_gps(
                 semana_obj, bu_obj, ref.grupo, ref.ruta_seq, mode, paradas
             )
@@ -294,6 +319,7 @@ def _agregar_indicadores(servicios):
     return acc
 
 
+@transaction.atomic
 def _sync_servicios(semana_obj, bunit_code, rows):
     """Persiste los servicios de rid=5 y recalcula indicadores por ruta."""
     bu, _ = BusinessUnit.objects.get_or_create(
@@ -406,6 +432,7 @@ def _fecha(value):
         return None
 
 
+@transaction.atomic
 def _sync_paradas(semana_obj, bunit_code, trips14, trips7):
     """Guarda el detalle por parada (API) para 7d y 14d."""
     bu, _ = BusinessUnit.objects.get_or_create(
@@ -447,9 +474,12 @@ def _sync_paradas(semana_obj, bunit_code, trips14, trips7):
     return total
 
 
-@transaction.atomic
 def sync_semana(year, week, bunits=None, force=False):
-    """Sincroniza una semana operativa (lunes-domingo) para las UDN indicadas."""
+    """Sincroniza una semana operativa (lunes-domingo) para las UDN indicadas.
+
+    Las llamadas de red (API Bustrax, Traffilog) quedan fuera de las
+    transacciones: solo los bloques de escritura son atómicos.
+    """
     semana_obj, monday, sunday = _semana(year, week)
     start14 = (monday - timedelta(days=7)).isoformat()
     end = sunday.isoformat()
@@ -457,6 +487,9 @@ def sync_semana(year, week, bunits=None, force=False):
     resumen = {"year": year, "week": week, "bunits": [], "clientes_cr": 0, "clientes_ns": 0, "gps": 0}
 
     for bu in _bunits(bunits):
+        bu_obj, _ = BusinessUnit.objects.get_or_create(
+            code=bu, defaults={"nombre": bu}
+        )
         try:
             trips = api.get_trips_eta(start14, end, bunit=bu)
         except api.BustraxError as exc:
@@ -491,33 +524,46 @@ def sync_semana(year, week, bunits=None, force=False):
                     mensaje=f"{bu}: rid=5 vacío; no se reemplazó el detalle existente",
                 )
             agg = ns.aggregate_rows(rows)
-            for cliente_base, data in agg.items():
-                cliente = _cliente(cliente_base)
-                ViajeSemana.objects.update_or_create(
-                    cliente=cliente,
-                    semana=semana_obj,
-                    defaults={
-                        "total": data["total"],
-                        "entradas": data["entradas"],
-                        "retrasos": data["retrasos"],
-                        "ns": data["ns"],
-                    },
-                )
+            with transaction.atomic():
+                for cliente_base, data in agg.items():
+                    cliente = _cliente(cliente_base)
+                    ViajeSemana.objects.update_or_create(
+                        cliente=cliente,
+                        business_unit=bu_obj,
+                        semana=semana_obj,
+                        defaults={
+                            "total": data["total"],
+                            "entradas": data["entradas"],
+                            "retrasos": data["retrasos"],
+                            "ns": data["ns"],
+                        },
+                    )
             resumen["clientes_ns"] = max(resumen["clientes_ns"], len(agg))
         except api.BustraxError as exc:
             SyncLog.objects.create(
                 proceso="ns", year=year, week=week, estado="parcial", mensaje=f"{bu}: {exc}"
             )
 
-        # Refinamiento GPS de rutas marcadas (14d y 7d)
-        gps_n = _aplicar_refinamientos(
-            semana_obj, bu, trips, rows, year, week, monday, start14, end
-        )
+        # Refinamiento GPS de rutas marcadas (14d y 7d). Aislado: un fallo de
+        # Traffilog no debe revertir CR/NS/servicios ya calculados.
+        try:
+            gps_n = _aplicar_refinamientos(
+                semana_obj, bu, trips, rows, year, week, monday, start14, end
+            )
+        except Exception as exc:  # noqa: BLE001 (resiliencia ante Traffilog)
+            gps_n = 0
+            SyncLog.objects.create(
+                proceso="gps",
+                year=year,
+                week=week,
+                estado="parcial",
+                mensaje=f"{bu}: refinamiento GPS falló ({exc})",
+            )
         resumen["gps"] += gps_n
 
-        # Recalcular agregados por cliente (mezcla API + GPS)
-        _recompute_cliente_cr(semana_obj, "14d")
-        _recompute_cliente_cr(semana_obj, "7d")
+        # Recalcular agregados por cliente (mezcla API + GPS) por UDN
+        _recompute_cliente_cr(semana_obj, "14d", bu_obj)
+        _recompute_cliente_cr(semana_obj, "7d", bu_obj)
         resumen["clientes_cr"] = max(resumen["clientes_cr"], len(stats14), len(stats7))
 
         resumen["bunits"].append(

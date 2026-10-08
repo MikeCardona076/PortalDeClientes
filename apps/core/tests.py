@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.core.models import BusinessUnit, Cliente, PerfilUsuario
+from apps.core.models import BusinessUnit, Cliente, GrupoCliente, PerfilUsuario
 from apps.core.scoping import get_scope_for_user
 
 
@@ -57,3 +57,24 @@ class PerfilTests(TestCase):
         )
         self.perfil.refresh_from_db()
         self.assertFalse(self.perfil.debe_cambiar_password)
+
+
+class GrupoClienteMultiUdnTests(TestCase):
+    """Un mismo `group` puede existir en varias UDN sin reasignarse."""
+
+    def test_mismo_group_en_dos_udn(self):
+        bu_tj = BusinessUnit.objects.create(code="set_tj2", nombre="TJ")
+        bu_cab = BusinessUnit.objects.create(code="set_cab", nombre="CAB")
+        cliente = Cliente.objects.create(nombre="SCHNEIDER")
+        g_tj = GrupoCliente.objects.create(
+            group="SCN-SCHNEIDER", cliente=cliente, business_unit=bu_tj
+        )
+        g_cab = GrupoCliente.objects.create(
+            group="SCN-SCHNEIDER", cliente=cliente, business_unit=bu_cab
+        )
+        self.assertNotEqual(g_tj.pk, g_cab.pk)
+        self.assertEqual(
+            GrupoCliente.objects.filter(group="SCN-SCHNEIDER").count(), 2
+        )
+        self.assertEqual(g_tj.business_unit, bu_tj)
+        self.assertEqual(g_cab.business_unit, bu_cab)

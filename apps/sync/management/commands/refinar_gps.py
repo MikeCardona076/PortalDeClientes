@@ -48,7 +48,9 @@ class Command(BaseCommand):
         grupo = None
         semana_obj = None
         if o["guardar"]:
-            grupo = GrupoCliente.objects.filter(group=o["grupo"]).first()
+            grupo = GrupoCliente.objects.filter(
+                group=o["grupo"], business_unit__code=o["bunit"]
+            ).first()
             if grupo is None:
                 self.stderr.write(
                     f"Grupo '{o['grupo']}' no existe; créalo antes en el admin."
@@ -59,6 +61,7 @@ class Command(BaseCommand):
             )
 
         client = gps.TraffilogClient()
+        ruta_seq = str(o["ruta"]).zfill(4)
         for mode, trips_src, ini in (
             ("7d", rows, monday.isoformat()),
             ("14d", rows14, start14),
@@ -68,11 +71,21 @@ class Command(BaseCommand):
             )
             self.stdout.write(f"  {mode}: calidad={calidad}% (servicios={n})")
             if o["guardar"] and calidad is not None:
+                # Fila completa: `_recompute_cliente_cr` ignora las GPS sin servicios.
                 CRRutaSemana.objects.update_or_create(
-                    grupo=grupo, semana=semana_obj, ruta_seq=o["ruta"], window_mode=mode,
-                    defaults={"calidad": calidad, "source": "gps"},
+                    grupo=grupo, semana=semana_obj, ruta_seq=ruta_seq,
+                    window_mode=mode,
+                    defaults={
+                        "descripcion": (route.get("description") or "")[:200],
+                        "shift": str(route.get("shift") or ""),
+                        "route_type": str(route.get("route_type") or ""),
+                        "criterio": "gps",
+                        "calidad": calidad,
+                        "servicios": n,
+                        "source": "gps",
+                    },
                 )
         if o["guardar"]:
-            _recompute_cliente_cr(semana_obj, "14d")
-            _recompute_cliente_cr(semana_obj, "7d")
+            _recompute_cliente_cr(semana_obj, "14d", grupo.business_unit)
+            _recompute_cliente_cr(semana_obj, "7d", grupo.business_unit)
         self.stdout.write(self.style.SUCCESS("Listo."))

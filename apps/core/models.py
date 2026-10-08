@@ -33,7 +33,7 @@ class Cliente(models.Model):
 class GrupoCliente(models.Model):
     """Grupo exacto tal como viene en las APIs (p.ej. SCN-SCHNEIDER)."""
 
-    group = models.CharField(max_length=180, unique=True)
+    group = models.CharField(max_length=180)
     gcode = models.CharField(max_length=60, blank=True)
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="grupos")
     business_unit = models.ForeignKey(
@@ -42,6 +42,10 @@ class GrupoCliente(models.Model):
     plant_key = models.CharField(max_length=20, blank=True)
 
     class Meta:
+        # Un mismo `group` puede existir en varias UDN: la identidad real es
+        # (group, business_unit). Evita que sincronizar una plaza reasigne el
+        # grupo de otra (colisión de nombres).
+        unique_together = ("group", "business_unit")
         verbose_name = "Grupo de cliente"
         verbose_name_plural = "Grupos de cliente"
 
@@ -67,6 +71,9 @@ class Semana(models.Model):
 
 class ViajeSemana(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="viajes")
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.PROTECT, related_name="viajes"
+    )
     semana = models.ForeignKey(Semana, on_delete=models.CASCADE, related_name="viajes")
     total = models.IntegerField(default=0)
     entradas = models.IntegerField(default=0)
@@ -74,7 +81,7 @@ class ViajeSemana(models.Model):
     ns = models.FloatField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("cliente", "semana")
+        unique_together = ("cliente", "semana", "business_unit")
 
 
 class CRRutaSemana(models.Model):
@@ -99,6 +106,9 @@ class CRRutaSemana(models.Model):
 
 class CRClienteSemana(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="cr")
+    business_unit = models.ForeignKey(
+        BusinessUnit, on_delete=models.PROTECT, related_name="cr"
+    )
     semana = models.ForeignKey(Semana, on_delete=models.CASCADE, related_name="cr")
     window_mode = models.CharField(max_length=5, default="14d")
     calidad = models.FloatField(null=True, blank=True)
@@ -106,8 +116,7 @@ class CRClienteSemana(models.Model):
     source = models.CharField(max_length=10, default="api")
 
     class Meta:
-        unique_together = ("cliente", "semana", "window_mode")
-        indexes = [models.Index(fields=["semana", "window_mode"])]
+        unique_together = ("cliente", "semana", "business_unit", "window_mode")
 
 
 class ServicioRutaSemana(models.Model):

@@ -43,10 +43,10 @@ class Command(BaseCommand):
                 cliente, _ = Cliente.objects.get_or_create(nombre=client_base(desc))
                 GrupoCliente.objects.update_or_create(
                     group=desc,
+                    business_unit=bu,
                     defaults={
                         "cliente": cliente,
                         "gcode": g.get("gcode", ""),
-                        "business_unit": bu,
                     },
                 )
             self.stdout.write(f"  grupos: {len(grupos)}")

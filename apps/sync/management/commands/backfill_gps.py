@@ -20,7 +20,12 @@ from django.db import close_old_connections
 from apps.bustrax import client as api
 from apps.bustrax import gps
 from apps.bustrax.weeks import week_window
-from apps.core.models import GpsPunto, RefinamientoRuta, ServicioRutaSemana
+from apps.core.models import (
+    BusinessUnit,
+    GpsPunto,
+    RefinamientoRuta,
+    ServicioRutaSemana,
+)
 from apps.sync.services import _aplicar_refinamientos, _recompute_cliente_cr, _semana
 
 
@@ -140,11 +145,19 @@ class Command(BaseCommand):
             except api.BustraxError as exc:
                 self.stderr.write(f"S{week}: rid=5 no disponible ({exc})")
                 continue
-            n = _aplicar_refinamientos(
-                semana_obj, bu, [], rows, year, week, monday, start14, end, grupo=grupo
+            bu_obj, _ = BusinessUnit.objects.get_or_create(
+                code=bu, defaults={"nombre": bu}
             )
-            _recompute_cliente_cr(semana_obj, "7d")
-            _recompute_cliente_cr(semana_obj, "14d")
+            try:
+                n = _aplicar_refinamientos(
+                    semana_obj, bu, [], rows, year, week, monday, start14, end,
+                    grupo=grupo,
+                )
+            except Exception as exc:  # noqa: BLE001 (resiliencia ante Traffilog)
+                self.stderr.write(f"S{week}: refinamiento GPS falló ({exc})")
+                continue
+            _recompute_cliente_cr(semana_obj, "7d", bu_obj)
+            _recompute_cliente_cr(semana_obj, "14d", bu_obj)
             self.stdout.write(f"S{week}: {n} rutas refinadas (gps).")
 
     def handle(self, *args, **o):

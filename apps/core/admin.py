@@ -71,14 +71,19 @@ class ComentarioSemanaAdmin(admin.ModelAdmin):
 
 @admin.register(ViajeSemana)
 class ViajeSemanaAdmin(admin.ModelAdmin):
-    list_display = ("cliente", "semana", "total", "entradas", "retrasos", "ns")
-    list_filter = ("semana__year",)
+    list_display = (
+        "cliente", "business_unit", "semana", "total", "entradas", "retrasos", "ns",
+    )
+    list_filter = ("business_unit", "semana__year")
 
 
 @admin.register(CRClienteSemana)
 class CRClienteSemanaAdmin(admin.ModelAdmin):
-    list_display = ("cliente", "semana", "window_mode", "calidad", "rutas", "source")
-    list_filter = ("window_mode", "semana__year", "source")
+    list_display = (
+        "cliente", "business_unit", "semana", "window_mode", "calidad", "rutas",
+        "source",
+    )
+    list_filter = ("business_unit", "window_mode", "semana__year", "source")
 
 
 @admin.register(CRRutaSemana)

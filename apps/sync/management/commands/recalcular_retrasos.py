@@ -88,13 +88,16 @@ class Command(BaseCommand):
         for s in servicios.iterator():
             cancelado = (s.estado_viaje == "Cancelado") or (s.status == "9")
             completado = s.status in ("5", "6", "7", "8") and not cancelado
-            kv = (s.grupo.cliente_id, s.semana_id)
+            kv = (s.grupo.cliente_id, s.semana_id, s.business_unit_id)
             v = viajes[kv]
             v["total"] += 1 if completado else 0
             v["entradas"] += 1 if s.es_entrada else 0
             v["retrasos"] += 1 if s.es_retraso else 0
 
-        RutaIndicadoresSemana.objects.filter(semana__year=year).delete()
+        a_borrar_rutas = RutaIndicadoresSemana.objects.filter(semana__year=year)
+        if bunits:
+            a_borrar_rutas = a_borrar_rutas.filter(business_unit__code__in=bunits)
+        a_borrar_rutas.delete()
         total_rutas = 0
         for semana in Semana.objects.filter(year=year):
             pyear, pweek = prev_week(semana.year, semana.week)
@@ -124,12 +127,16 @@ class Command(BaseCommand):
                     )
                     total_rutas += 1
 
-        # Reemplaza ViajeSemana del año.
-        ViajeSemana.objects.filter(semana__year=year).delete()
-        for (cliente_id, semana_id), data in viajes.items():
+        # Reemplaza ViajeSemana del año (solo las UDN recalculadas).
+        a_borrar = ViajeSemana.objects.filter(semana__year=year)
+        if bunits:
+            a_borrar = a_borrar.filter(business_unit__code__in=bunits)
+        a_borrar.delete()
+        for (cliente_id, semana_id, business_unit_id), data in viajes.items():
             entradas = data["entradas"]
             ViajeSemana.objects.create(
                 cliente_id=cliente_id,
+                business_unit_id=business_unit_id,
                 semana_id=semana_id,
                 total=data["total"],
                 entradas=entradas,

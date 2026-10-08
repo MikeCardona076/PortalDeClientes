@@ -389,7 +389,8 @@ class ComentarioSemanaTests(TestCase):
 
     def test_index_muestra_conteo_comentarios(self):
         ViajeSemana.objects.create(
-            cliente=self.cliente, semana=self.semana, total=5, ns=95
+            cliente=self.cliente, business_unit=self.bu, semana=self.semana,
+            total=5, ns=95,
         )
         ComentarioSemana.objects.create(
             cliente=self.cliente, business_unit=self.bu, semana=self.semana,
@@ -405,3 +406,48 @@ class ComentarioSemanaTests(TestCase):
         cell = next(c for c in row["cells"] if c["week"] == 34)
         self.assertEqual(cell["n_comentarios"], 1)
         self.assertIn("normal", cell["comentario_resumen"])
+
+
+class MultiUdnTests(TestCase):
+    """Los agregados de cliente no deben mezclar UDN."""
+
+    def setUp(self):
+        self.bu_tj = BusinessUnit.objects.create(code="set_tj2", nombre="TJ2")
+        self.bu_cab = BusinessUnit.objects.create(code="set_cab", nombre="CAB")
+        self.cliente = Cliente.objects.create(nombre="FLEX")
+        self.semana = Semana.objects.create(
+            year=2026, week=34, inicio=date(2026, 8, 17), fin=date(2026, 8, 23)
+        )
+        self.admin = User.objects.create_superuser("admin2", password="x")
+        ViajeSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu_tj, semana=self.semana,
+            total=10, entradas=10, retrasos=1, ns=90.0,
+        )
+        ViajeSemana.objects.create(
+            cliente=self.cliente, business_unit=self.bu_cab, semana=self.semana,
+            total=3, entradas=3, retrasos=0, ns=100.0,
+        )
+
+    def _cell(self, udn):
+        resp = self.client.get(
+            reverse("metricas:index"),
+            {"anio": 2026, "udn": udn, "window": "7d"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        row = resp.context["rows"][0]
+        return next(c for c in row["cells"] if c["week"] == 34)
+
+    def test_matriz_no_mezcla_udn(self):
+        self.client.force_login(self.admin)
+        tj = self._cell("set_tj2")
+        self.assertEqual(tj["viajes"], 10)
+        self.assertEqual(tj["ns"], 90.0)
+        cab = self._cell("set_cab")
+        self.assertEqual(cab["viajes"], 3)
+        self.assertEqual(cab["ns"], 100.0)
+
+    def test_default_udn_es_set_tj2(self):
+        from apps.metricas.views import _udn_arg
+
+        request = type("R", (), {"GET": {}})()
+        self.assertEqual(_udn_arg(request, es_admin=True), "set_tj2")

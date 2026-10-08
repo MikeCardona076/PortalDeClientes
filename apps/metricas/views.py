@@ -67,24 +67,41 @@ def _stop_key(value):
     return (1, 0, s)
 
 
+def _udn_default(qs):
+    """Prefiere la UDN por defecto de settings; si no está, la primera."""
+    return qs.filter(code=settings.DEFAULT_UDN).first() or qs.first()
+
+
+def _udns_disponibles(business_units, udn=None):
+    """UDN visibles para el selector (activas) más la seleccionada si falta."""
+    udns = list(business_units.filter(activa=True).order_by("nombre"))
+    if udn and not any(b.code == udn for b in udns):
+        actual = (
+            business_units.filter(code=udn).first()
+            or BusinessUnit.objects.filter(code=udn).first()
+        )
+        if actual is not None:
+            udns.append(actual)
+    return udns
+
+
 def _udn_arg(request, business_units=None, es_admin=False):
     """Código de UDN solicitado dentro del scope del usuario."""
     code = (request.GET.get("udn") or "").strip()
     if es_admin:
-        if code:
+        if code and BusinessUnit.objects.filter(code=code).exists():
             return code
-        bu = BusinessUnit.objects.filter(activa=True).order_by("code").first()
-        return bu.code if bu else "set_tj2"
+        bu = _udn_default(BusinessUnit.objects.filter(activa=True).order_by("code"))
+        return bu.code if bu else settings.DEFAULT_UDN
     if business_units is not None:
         if code and business_units.filter(code=code).exists():
             return code
-        bu = (
-            business_units.filter(activa=True).order_by("code").first()
-            or business_units.order_by("code").first()
-        )
+        bu = _udn_default(
+            business_units.filter(activa=True).order_by("code")
+        ) or _udn_default(business_units.order_by("code"))
         return bu.code if bu else None
-    bu = BusinessUnit.objects.filter(activa=True).order_by("code").first()
-    return bu.code if bu else "set_tj2"
+    bu = _udn_default(BusinessUnit.objects.filter(activa=True).order_by("code"))
+    return bu.code if bu else settings.DEFAULT_UDN
 
 
 def _get_udn_bu(code):
@@ -194,12 +211,15 @@ def index(request):
     cr = {
         (r.cliente_id, r.semana_id): r
         for r in CRClienteSemana.objects.filter(
-            semana__year=year, window_mode=window, cliente__in=clientes
+            semana__year=year, window_mode=window, cliente__in=clientes,
+            business_unit=bu,
         )
     }
     viajes = {
         (v.cliente_id, v.semana_id): v
-        for v in ViajeSemana.objects.filter(semana__year=year, cliente__in=clientes)
+        for v in ViajeSemana.objects.filter(
+            semana__year=year, cliente__in=clientes, business_unit=bu
+        )
     }
 
     # Comentarios del año por cliente/semana (para la insignia de la matriz)
@@ -260,6 +280,7 @@ def index(request):
             "rows": rows,
             "sem_actual": current_week()[1],
             "udn": udn,
+            "udns": _udns_disponibles(business_units, udn),
             "es_admin": es_admin,
             "clientes_filtro": clientes_filtro,
             "cliente_sel": cliente_sel,
@@ -289,12 +310,14 @@ def cliente(request):
     kpi_viajes = kpi_ns = kpi_entradas = kpi_ret = None
     cr_actual = None
     if semana:
-        v = ViajeSemana.objects.filter(cliente=cliente_obj, semana=semana).first()
+        v = ViajeSemana.objects.filter(
+            cliente=cliente_obj, semana=semana, business_unit=bu
+        ).first()
         if v:
             kpi_viajes, kpi_ns = v.total, v.ns
             kpi_entradas, kpi_ret = v.entradas, v.retrasos
         c = CRClienteSemana.objects.filter(
-            cliente=cliente_obj, semana=semana, window_mode=window
+            cliente=cliente_obj, semana=semana, window_mode=window, business_unit=bu
         ).first()
         if c:
             cr_actual = c.calidad
@@ -308,9 +331,11 @@ def cliente(request):
     else:
         semanas_prev = []
     for s in semanas_prev:
-        v = ViajeSemana.objects.filter(cliente=cliente_obj, semana=s).first()
+        v = ViajeSemana.objects.filter(
+            cliente=cliente_obj, semana=s, business_unit=bu
+        ).first()
         c = CRClienteSemana.objects.filter(
-            cliente=cliente_obj, semana=s, window_mode=window
+            cliente=cliente_obj, semana=s, window_mode=window, business_unit=bu
         ).first()
         serie.append(
             {
@@ -446,6 +471,7 @@ def cliente(request):
         {
             "cliente": cliente_obj,
             "udn": udn,
+            "udns": _udns_disponibles(business_units, udn),
             "bu": bu,
             "year": year,
             "week": week,
@@ -519,12 +545,14 @@ def _detalle_email(cliente_obj, bu, year, week, window):
     kpi_viajes = kpi_ns = kpi_entradas = kpi_ret = None
     cr_actual = None
     if semana:
-        v = ViajeSemana.objects.filter(cliente=cliente_obj, semana=semana).first()
+        v = ViajeSemana.objects.filter(
+            cliente=cliente_obj, semana=semana, business_unit=bu
+        ).first()
         if v:
             kpi_viajes, kpi_ns = v.total, v.ns
             kpi_entradas, kpi_ret = v.entradas, v.retrasos
         c = CRClienteSemana.objects.filter(
-            cliente=cliente_obj, semana=semana, window_mode=window
+            cliente=cliente_obj, semana=semana, window_mode=window, business_unit=bu
         ).first()
         if c:
             cr_actual = c.calidad

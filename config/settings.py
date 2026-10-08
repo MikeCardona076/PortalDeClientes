@@ -158,6 +158,10 @@ TRAFFILOG_TZ = config("TRAFFILOG_TZ", default="America/Tijuana")
 
 CR_WINDOW_DEFAULT = config("CR_WINDOW_DEFAULT", default="7d")
 
+# UDN preferida cuando el usuario no especifica `?udn=` (evita que el orden
+# alfabético cambie el default, p.ej. set_cab < set_tj2).
+DEFAULT_UDN = config("DEFAULT_UDN", default="set_tj2")
+
 # ------------------------------------------------------------------ GPS / CR
 # Si está activo, el sync crea RefinamientoRuta para toda ruta IN/N nueva.
 GPS_REFINAR_AUTO = config("GPS_REFINAR_AUTO", default=True, cast=bool)

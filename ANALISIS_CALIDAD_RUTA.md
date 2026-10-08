@@ -1,5 +1,11 @@
 # Análisis: Calidad de Ruta (%CR) en CLIENTESD
 
+> **Nota (estado actual):** este documento es un análisis histórico (2026-09) del intento por
+> reconstruir el CR semanal vía GPS. Decisiones vigentes en el código: el CR que se guarda en
+> `sync_semana` es **el del API** y el GPS **solo enriquece el detalle de paradas**
+> (`ParadaRutaSemana`); el CR por GPS existe únicamente como override manual con
+> `refinar_gps --guardar`. Ver `Judgeman.md` §5.1 para el detalle.
+
 _Estado al 2026-09-09 · Foco: Tijuana 2 (set_tj2), resto de UDN desactivadas a propósito._
 
 ---

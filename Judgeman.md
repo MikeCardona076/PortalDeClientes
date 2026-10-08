@@ -115,14 +115,17 @@ Implementado en `apps/bustrax/weeks.py`: `week_window`, `weeks_of_year`, `curren
   de la plataforma) y `7d` = `[lunes, domingo]`. El default sale de `CR_WINDOW_DEFAULT`.
 - Calibración conocida (SCHNEIDER S6 2026): CR 14d ≈ 97.14, 7d ≈ 97.17 vs histórico 97.44.
 - **Caveat**: hay rutas donde el ETA sobrecuenta (ej. seq 142 real 91 vs API ~99). Para eso
-  existe el **refinamiento GPS** (`apps/bustrax/gps.py`), **cableado** en `sync_semana`:
-  - Se configura en el admin con `RefinamientoRuta` (grupo + `ruta_seq`).
-  - Criterio por defecto **200 m** (oficial de Bustrax: `tracker/eta/eta.php:780`, `$md = 200`,
-    `found = smin < md`), parametrizable por ruta.
-  - Calcula ambas ventanas (`14d` y `7d`) y guarda `CRRutaSemana.source="gps"`.
-  - `CRClienteSemana` se recalcula mezclando API+GPS (`source="mixto"`).
-  - Puntos GPS cacheados en BD (`GpsPunto`). Prueba: `manage.py refinar_gps 2026 6 --grupo SCN-SCHNEIDER --ruta 142`.
-  - Resultado observado 142: `7d=98.99`, `14d=85.35` (real 91) — Traffilog difiere del `his` interno de Bustrax.
+  existe el **refinamiento GPS** (`apps/bustrax/gps.py`). **Ojo con el comportamiento real:**
+   - En `sync_semana` el GPS **NO cambia la Calidad de ruta**: solo **enriquece las paradas**
+     (`ParadaRutaSemana`: velocidad mínima, detenciones, cobertura `servicios_gps`). El CR que
+     se guarda sigue siendo el del API (`CRRutaSemana.source="api"`).
+   - Se configura con `RefinamientoRuta` (grupo + `ruta_seq`). Criterio por defecto **200 m**
+     (oficial de Bustrax: `tracker/eta/eta.php:780`, `$md = 200`), parametrizable por ruta.
+   - El único camino que escribe CR por GPS es el comando **manual** `refinar_gps --guardar`
+     (`CRRutaSemana.source="gps"`; `CRClienteSemana` pasa a `source="mixto"`). Es diagnóstico
+     y opcional, no forma parte del sync diario.
+   - Puntos GPS cacheados en BD (`GpsPunto`). Prueba: `manage.py refinar_gps 2026 6 --grupo SCN-SCHNEIDER --ruta 142`.
+   - Resultado observado 142: `7d=98.99`, `14d=85.35` (real 91) — Traffilog difiere del `his` interno de Bustrax.
 
 ### 5.2 Nivel de Servicio (NS) y Viajes — `apps/bustrax/ns.py`
 Fórmulas (validadas contra Excel del cliente):
@@ -139,10 +142,13 @@ Exclusiones de denominador: grupos `GRUPO VIAJES ESPECIALES*` y `TVM-TELVISTA ME
 
 ## 6. Modelos y auth (`apps/core`)
 
-- `BusinessUnit` (code, nombre), `Cliente` (nombre base), `GrupoCliente` (group exacto→cliente/bunit).
-- `Semana` (year, week, inicio, fin), `ViajeSemana` (total, entradas, retrasos, ns).
+- `BusinessUnit` (code, nombre), `Cliente` (nombre base), `GrupoCliente`
+  (único por `(group, business_unit)`; un mismo nombre puede existir en varias UDN).
+- `Semana` (year, week, inicio, fin), `ViajeSemana` (cliente, **business_unit**, semana, total, entradas, retrasos, ns).
 - `CRRutaSemana` (grupo, ruta_seq, shift, route_type, window_mode, calidad, servicios, source).
-- `CRClienteSemana` (cliente, semana, window_mode, calidad, rutas, source).
+- `CRClienteSemana` (cliente, **business_unit**, semana, window_mode, calidad, rutas, source).
+  Tanto `ViajeSemana` como `CRClienteSemana` son **por UDN**: el mismo cliente en Tijuana,
+  Cabos y Mexicali tiene filas separadas (antes se mezclaban).
 - `MaeRuta`, `GpsPunto`, `SyncLog`.
 - **Scope**: `PerfilUsuario` (OneToOne User) con M2M `clientes` y `es_admin`.
   `apps/core/scoping.get_clientes_for_user()`; middleware `ScopeMiddleware` pone
@@ -166,7 +172,11 @@ Regla de **nombre base de cliente** (`cr.client_base`): `"SCN-SCHNEIDER"` → `"
 - En prod: tareas Celery (`apps/sync/tasks.py`) + **beat diario 05:00** (America/Tijuana) con
   `tarea_sync_semana_actual` (`CELERY_BEAT_SCHEDULE` en `config/settings.py`).
 - El `web` corre `migrate` al arrancar (`deploy/entrypoint.sh` + `ENTRYPOINT` en `Dockerfile`).
-- UDN por defecto si no hay ninguna en BD: `set_tj2`. (Actualmente **solo se sincroniza set_tj2**.)
+- UDN por defecto si no hay ninguna en BD: `set_tj2` (`settings.DEFAULT_UDN`). El sync sin
+  `--bunit` procesa **todas las UDN activas** (`_bunits()`), así que el beat diario cubre
+  Tijuana, Cabos y Mexicali una vez registradas y activas.
+- Las llamadas de red/GPS quedan fuera de transacciones; cada bloque de escritura es atómico,
+  y un fallo de Traffilog se registra como `SyncLog` parcial sin revertir la semana.
 
 ---
 
@@ -203,8 +213,9 @@ No reescribir desde cero: revisar `apps/bustrax/` primero.
 1. **Calibrar GPS por ruta**: el criterio es 200 m; en la 142 el `14d` da 85.35 vs 91 real
    (Traffilog ≠ `his` interno de Bustrax). Ajustar `tol_m`/ventana por ruta si hace falta.
 2. Asignar **scope** a usuarios-cliente en el admin.
-3. Sincronizar **otras UDN** (hoy solo `set_tj2`).
-4. Score de Seguridad (otra API) pendiente.
+3. Sincronizar **otras UDN** (Cabos `set_cab`, Mexicali `set_mxl`): `seed_bustrax --bunit ...`,
+   verificar `activa=True`, backfill por UDN y asignar la UDN a los perfiles. Ya soportado.
+4. Score de Seguridad (otra API) pendiente. 
 5. Rotar tokens (estuvieron en texto plano en el legacy local).
 
 ---

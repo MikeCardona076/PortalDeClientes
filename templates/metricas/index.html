@@ -28,17 +28,20 @@
         </select>
         {% endif %}
     </form>
-    <span class="ml-auto text-sm font-semibold text-slate-600">UDN: <span class="text-blue-950">{{ udn }}</span> · Semana actual: <span class="text-blue-950">S{{ sem_actual }}</span></span>
+    <div class="ml-auto flex flex-wrap items-center gap-3">
+        {% include "metricas/_udn_selector.html" %}
+        <span class="text-sm font-semibold text-slate-600">Semana actual: <span class="text-blue-950">S{{ sem_actual }}</span></span>
+    </div>
 </div>
 
 <div class="flex flex-wrap items-center gap-2 mb-3">
-    <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm" id="winToggle">
+    <div class="inline-flex rounded-lg border border-white/60 bg-white/70 backdrop-blur p-1 shadow-sm" id="winToggle">
         <a href="?anio={{ year }}&window=14d&udn={{ udn|urlencode }}{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
            class="win-btn px-3 py-1.5 rounded-md text-sm transition {% if window == '14d' %}bg-blue-950 text-white font-medium shadow-[0_0_10px_rgba(251,191,36,0.25)]{% else %}text-slate-600 hover:bg-slate-100{% endif %}">CR 14d (plataforma)</a>
         <a href="?anio={{ year }}&window=7d&udn={{ udn|urlencode }}{% if es_admin and cliente_sel %}&cliente={{ cliente_sel }}{% endif %}{% if es_admin and semana_sel %}&semana={{ semana_sel }}{% endif %}"
            class="win-btn px-3 py-1.5 rounded-md text-sm transition {% if window == '7d' %}bg-blue-950 text-white font-medium shadow-[0_0_10px_rgba(251,191,36,0.25)]{% else %}text-slate-600 hover:bg-slate-100{% endif %}">CR 7d (semana)</a>
     </div>
-    <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm" id="metricToggle">
+    <div class="inline-flex rounded-lg border border-white/60 bg-white/70 backdrop-blur p-1 shadow-sm" id="metricToggle">
         <button type="button" data-metric="viajes" class="metric-btn px-3 py-1.5 rounded-md text-sm transition bg-blue-950 text-white font-medium shadow-[0_0_10px_rgba(251,191,36,0.25)]">Viajes</button>
         <button type="button" data-metric="ns" class="metric-btn px-3 py-1.5 rounded-md text-sm transition text-slate-600 hover:bg-slate-100">Nivel Servicio</button>
         <button type="button" data-metric="cr" class="metric-btn px-3 py-1.5 rounded-md text-sm transition text-slate-600 hover:bg-slate-100">Calidad Ruta ({{ window }})</button>
@@ -53,7 +56,7 @@
 </div>
 {% endif %}
 
-<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+<div class="glass rounded-2xl p-4">
   <div class="overflow-x-auto">
     <table class="w-full text-sm align-middle" id="heat">
       <thead>
